@@ -1,0 +1,1645 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BUDGY</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: #000; color: #e2e8f0; }
+    input, select, textarea, button { font-family: inherit; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React via ESM (no CommonJS) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18",
+      "react-dom/client": "https://esm.sh/react-dom@18/client"
+    }
+  }
+  </script>
+
+  <!-- Babel standalone for JSX transform -->
+  <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useRef } from "react";
+    import { createRoot } from "react-dom/client";
+
+// ─── Supabase Storage ─────────────────────────────────────────────────────────
+const SUPA_URL = "https://uzqaaorxwjacjntgfqce.supabase.co";
+const SUPA_KEY = "sb_publishable_rZFv-AqECsu5QuOwkK9q_w_baFbRZbE";
+
+async function supaGet(table, id) {
+  const r = await fetch(`${SUPA_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}&select=data`, {
+    headers: { "apikey": SUPA_KEY, "Authorization": "Bearer "+SUPA_KEY }
+  });
+  const rows = await r.json();
+  return rows?.[0]?.data ?? null;
+}
+async function supaSet(table, id, value) {
+  await fetch(`${SUPA_URL}/rest/v1/${table}`, {
+    method: "POST",
+    headers: { "apikey": SUPA_KEY, "Authorization": "Bearer "+SUPA_KEY, "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
+    body: JSON.stringify({ id, data: value })
+  });
+}
+async function supaGetPhoto(userId) {
+  const r = await fetch(`${SUPA_URL}/rest/v1/budgy_photos?user_id=eq.${encodeURIComponent(userId)}&select=photo`, {
+    headers: { "apikey": SUPA_KEY, "Authorization": "Bearer "+SUPA_KEY }
+  });
+  const rows = await r.json();
+  return rows?.[0]?.photo ?? null;
+}
+async function supaSetPhoto(userId, photo) {
+  await fetch(`${SUPA_URL}/rest/v1/budgy_photos`, {
+    method: "POST",
+    headers: { "apikey": SUPA_KEY, "Authorization": "Bearer "+SUPA_KEY, "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
+    body: JSON.stringify({ user_id: userId, photo })
+  });
+}
+
+const db = {
+  get: async (k) => {
+    try {
+      if (k.startsWith("budgy_photo_")) {
+        const userId = k.replace("budgy_photo_", "");
+        return await supaGetPhoto(userId);
+      }
+      const table = k === "promo_ops_v1" ? "budgy_ops" : "budgy_users";
+      const id = k === "promo_ops_v1" ? "ops" : "users";
+      return await supaGet(table, id);
+    } catch(e) { console.warn("db.get failed:", k, e); return null; }
+  },
+  set: async (k, v) => {
+    try {
+      if (k.startsWith("budgy_photo_")) {
+        const userId = k.replace("budgy_photo_", "");
+        await supaSetPhoto(userId, v);
+        return;
+      }
+      const table = k === "promo_ops_v1" ? "budgy_ops" : "budgy_users";
+      const id = k === "promo_ops_v1" ? "ops" : "users";
+      await supaSet(table, id, v);
+    } catch(e) { console.warn("db.set failed:", k, e); }
+  },
+};
+
+
+// Session stays local (per device)
+const session = {
+  get: () => { try { const v = localStorage.getItem("budgy_session_v1"); return v ? JSON.parse(v) : null; } catch { return null; } },
+  set: (v) => { try { if(v===null) localStorage.removeItem("budgy_session_v1"); else localStorage.setItem("budgy_session_v1", JSON.stringify(v)); } catch {} }
+};
+
+// ─── Live FX rate ─────────────────────────────────────────────────────────────
+const FALLBACK_RATES = { USD:0.856, CHF:0.965 };
+async function fetchFxToEur(currency) {
+  const cur = currency.toLowerCase();
+  const attempts = [
+    () => fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${cur}.json`).then(r=>r.json()).then(d=>d[cur]?.eur||null),
+    () => fetch(`https://latest.currency-api.pages.dev/v1/currencies/${cur}.json`).then(r=>r.json()).then(d=>d[cur]?.eur||null),
+    () => fetch(`https://open.er-api.com/v6/latest/${currency}`).then(r=>r.json()).then(d=>d.rates?.EUR||null),
+    () => fetch(`https://api.frankfurter.app/latest?from=${currency}&to=EUR`).then(r=>r.json()).then(d=>d.rates?.EUR||null),
+  ];
+  for (const attempt of attempts) {
+    try { const rate = await attempt(); if (rate && rate > 0) return rate; } catch {}
+  }
+  return FALLBACK_RATES[currency] || null;
+}
+async function fetchUsdEur() { return fetchFxToEur("USD"); }
+
+// ─── Date utils ───────────────────────────────────────────────────────────────
+const MONTHS = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12, janv:1,févr:2,mars:3,avr:4,mai:5,juin:6,juil:7,aoû:8,sept:9 };
+function parseDate(val) {
+  if (!val && val !== 0) return "";
+  const s = String(val).trim(); if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  const m2 = s.match(/^(\d{1,2})[\s\-\/]([A-Za-zÀ-ÿ]+)[\s\-\/](\d{4})$/);
+  if (m2) { const mo=MONTHS[m2[2].toLowerCase().slice(0,4)]||MONTHS[m2[2].toLowerCase().slice(0,3)]; if(mo) return `${m2[3]}-${String(mo).padStart(2,"0")}-${m2[1].padStart(2,"0")}`; }
+  const m3 = s.match(/^([A-Za-zÀ-ÿ]+)[\s\-\/](\d{1,2})[\s\-\/,]*(\d{4})$/);
+  if (m3) { const mo=MONTHS[m3[1].toLowerCase().slice(0,4)]||MONTHS[m3[1].toLowerCase().slice(0,3)]; if(mo) return `${m3[3]}-${String(mo).padStart(2,"0")}-${m3[2].padStart(2,"0")}`; }
+  return "";
+}
+function displayDate(iso) {
+  if (!iso||iso.length<10) return "—";
+  const [y,m,d]=iso.split("-"); return `${d}/${m}/${y}`;
+}
+function parsePastedText(text) {
+  return text.trim().split(/\r?\n/).filter(l=>l.trim()).map(l=>l.split("\t").map(c=>c.trim()));
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+// Normalize string for accent-insensitive search
+const norm = s => (s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
+
+const genId = () => "OP-"+Date.now().toString(36).toUpperCase()+"-"+Math.random().toString(36).slice(2,5).toUpperCase();
+const today = () => new Date().toISOString().slice(0,10);
+const TVA = 1.20;
+
+function statusOf(op) {
+  if (op.docPartner?.trim()) return "doc_recu";
+  const now=today(), start=op.dateStart||"", end=op.dateEnd||"";
+  if (!start||!end) return "a_venir";
+  if (start<=now&&end>=now) return "en_cours";
+  if (end<now) {
+    // Rapport envoyé → en attente de paiement → "À venir" (côté LDLC, balle dans le camp du partenaire)
+    if (op.rapportDate) return "du_payer";
+    return "du_declarer";
+  }
+  return "a_venir";
+}
+function computeTotal(products) {
+  return (products||[]).reduce((s,p)=>(parseFloat(p.budget)||0)*(parseFloat(p.qty)||0)+s,0);
+}
+function toEur(amount, currency, rate) {
+  return currency==="EUR"?amount:amount*(rate||0.92);
+}
+function fmt(n, currency="EUR") {
+  const val = n||0;
+  if (currency === "USD") {
+    const abs = Math.abs(val).toLocaleString("fr-FR", {minimumFractionDigits:2, maximumFractionDigits:2});
+    return (val < 0 ? "-$" : "$") + abs;
+  }
+  if (currency === "CHF") {
+    return new Intl.NumberFormat("fr-CH",{style:"currency",currency:"CHF",maximumFractionDigits:2}).format(val);
+  }
+  return new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR",maximumFractionDigits:2}).format(val);
+}
+
+// Status colors
+const STATUS_COLOR = { doc_recu:"#22c55e", du_declarer:"#f97316", du_payer:"#ef4444", en_cours:"#eab308", a_venir:"#3b82f6" };
+const FAVICON_MAP = {
+  "LDLC.com": "data:image/gif;base64,R0lGODlhEAAQAOYAAAg9hwU9hwhBiQg+iAQ8hghCigc+hwA5hP///w1DigAzgAN5swVenwxCihZKjwJ7tenu9Yqlx9nh7QNzr9jh7LvK3gVeoMrW5TxxqA1Di3qYv8Xe7AVcnQCRxh1PkgpBiQdFjACQxQhBigCXyQCbzQY9hwGHvsnU5QhEjNzk7rbG3BRIjQVlpAY+h6u+1gg8huvw9QhCiwN5tLzJ3QVbndDZ6D9zqQGTxwlAiYqkxgGOwxFGjQZUmH2ZwOXr8+Lo8QF+uAE1gQc+iAJ1sMff7MHN4AZVmQVdnwE0gQ9EiwCczQc/iAVcnm+PugVfoANwrRVJjgg+hwg/iAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAAAAAAALAAAAAAQABAAAAeJgFKCg4SFhoeIiYqKJQRSAQQtUlEDggBRUVJCSVA4Ow4DBygiAAAgBTFSSBo+Hi4wNTYmDFELIws8AAoRCCsXKjNEHTQcSkcWDLo5CD0QFUUbIUMyJCxOTFJBTRQ/EiknGEA6DxM3T0ZSSx8ZCQ0JBAcCAlIvBVLzUgYB+wEGk5STFgkcSLCgoEAAOw==",
+  "LDLC.pro": "data:image/gif;base64,R0lGODlhEAAQAPdAAMEAK////+B/lWkAZwBmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGwAAABj21KsBAMx27gAY9gAAARHkAAB2WAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC3AMHzQAAAAOwAAAAY9pcADgF6BCgAAHZYElQqAAAgdlgAGwDBzAAAAfM4ABAAwQAY9+3gI9+ldgB27QAAAAAAAAAAAJQAAAAY91XGi/eUduUAGHZVxgAAAP//ABgEjwCuba5tGAAYAAAAAAAAABj3bABAAAAAAAAAABj3WAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAgEBAFIAGHSaQAAAAAAAAMAAtwLR7QAAAAACAA8AAAETAAAAJPNAAAAAwQAAAAAC8N44AAEC0QAAANHtuPe0AiMAGHbt4AAC8PwqAC527HZUyQAC8PfoAPAAGAAY9wAACAAOAHQAAACtuAAAAALwAMAAAALR7Y////fwBPAAGHSaUxj36G0YAAAArgAAAAAAAAAAAAAAAAAAAOz8KsgrdvB2VAAAAhz4GCH5BAkAAP8ALAAAAAAQABAAAAhFAP/9A0CwoEEAAgUeXFhQIcOFAx9KnEhRYgCCATIKAHCRoICMGTGK7MixYMeTJUViBKmRY8iPISvKnPkwYkWHNxNOTBgQADs=",
+  "Materiel.net": "data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAi5APcJHEgMDbGBCBGiAQCAHkM0CQUujEFv37l99GIAEDNwort9H4WBxKhx0j4AmTCi8mNxnx9UHzMZOLkP1UpU+3rVJITK1b4VNF2lcoXzIippqaTti0FTms1U+0SiymZzadNU2IrWlOZK6UwANbNO28drH1KkVsEizdryFVelTMEeTYVzmFlUWPcdoIn1aM59WZ3ug7FPjBg/frruM1czFSE/YnBIFHMjAEMcDAHEEAMxorJMoJVFDAgAOw==",
+  "TopAchat": "data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAiHAOE8sFABQgULAw8mhADHAkKHBR9AGEjQIMKDCvdpDFUhIUELBg0+0LhPk8WQHw9aIAkKyEOMIUGRZDlwIISKcGZqtGOxAkaCIzWCmlixYsGCLC16hFmB5CaFFWs6DLov1AOKKqFS3RfNiNSCHx9Emwmnp9GHZI/eXKjw6tWUDY8+dDgVIZyAADs=",
+  "RueDuCommerce": "data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAirAPcJ3KcsjYwDCMcoG8gQx4EADxEgDJBm2UBlCCBmRChg4oGFyiAe2PiwpMQDxA5mRJMGByUcb8Y41FjyAI5JODIdGNPyIMQAEgNoSpMmEwI0k9Cc/AlRBg6eT58G0AgRh4wGP20ixDEzgINJRdNomjR00ps0k4LiiOFgjKZMcHOmofgwAA6imWSkQZCJJ96Sdp3atSvmgFOrCAEDZsq4rmKRPylInky5so+AADs="
+};
+const STATUS_LABELS = { en_cours:"En cours", a_venir:"À venir", du_declarer:"À déclarer", du_payer:"Déclaré", doc_recu:"Traité ✓" };
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const inp = { background:"#2a2a2a", border:"1px solid rgba(255,255,255,0.15)", color:"#f1f5f9", borderRadius:8, padding:"9px 11px", fontSize:14, outline:"none", width:"100%", boxSizing:"border-box" };
+const sel = { ...inp, appearance:"none", WebkitAppearance:"none", backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat:"no-repeat", backgroundPosition:"right 9px center", paddingRight:28, cursor:"pointer" };
+const lbl = { display:"block", color:"#9ca3af", fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8, marginBottom:5 };
+const btnP = { background:"#3a3a3a", border:"1px solid rgba(255,255,255,0.2)", color:"#f1f5f9", borderRadius:9, padding:"10px 20px", cursor:"pointer", fontSize:14, fontWeight:700 };
+const btnG = { background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.14)", color:"#d1d5db", borderRadius:9, padding:"10px 20px", cursor:"pointer", fontSize:14 };
+const dashedBtn = { background:"rgba(255,255,255,0.04)", border:"1px dashed rgba(255,255,255,0.2)", color:"#9ca3af", borderRadius:8, padding:"9px 0", cursor:"pointer", fontSize:13, fontWeight:600, width:"100%", textAlign:"center", display:"block", marginTop:7 };
+
+function KpiCard({ label, accentColor, textColor, amount, count }) {
+  return (
+    <div style={{ background:`${accentColor}20`, borderRadius:14, padding:"18px 22px", flex:1, minWidth:160, border:`1px solid ${accentColor}33`, borderTop:`3px solid ${accentColor}` }}>
+      <div style={{ color:"#9ca3af", fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:7 }}>{label}</div>
+      {amount!=null&&<div style={{ color:textColor, fontSize:22, fontWeight:800 }}>{amount}</div>}
+      {count!==undefined&&<div style={{ color:textColor, fontSize:amount!=null?13:22, fontWeight:amount!=null?400:800, marginTop:amount!=null?3:0 }}>{count===0?"Aucune opération":count===1?"1 opération":`${count} opérations`}</div>}
+    </div>
+  );
+}
+
+function ConfirmDialog({ message, onConfirm, onCancel }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000 }}>
+      <div style={{ background:"#0f172a", border:"1px solid rgba(255,255,255,0.12)", borderRadius:16, padding:32, width:380, textAlign:"center" }}>
+        <div style={{ fontSize:36, marginBottom:14 }}>🗑</div>
+        <p style={{ color:"#e2e8f0", fontSize:15, marginBottom:26 }}>{message}</p>
+        <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
+          <button onClick={onCancel} style={btnG}>Annuler</button>
+          <button onClick={onConfirm} style={{ ...btnP, background:"#ef4444" }}>Supprimer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConflictDialog({ conflicts, onConfirm, onCancel }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.9)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:3000, padding:16 }}>
+      <div style={{ background:"#0f172a", border:"1px solid #f59e0b", borderRadius:16, padding:32, width:"100%", maxWidth:540 }}>
+        <div style={{ fontSize:30, marginBottom:10 }}>⚠️</div>
+        <h3 style={{ margin:"0 0 14px", color:"#fcd34d", fontSize:17, fontWeight:800 }}>Données existantes détectées</h3>
+        <div style={{ maxHeight:260, overflowY:"auto", marginBottom:18 }}>
+          {conflicts.map((c,i)=>(
+            <div key={i} style={{ background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.25)", borderRadius:8, padding:"10px 12px", marginBottom:8, fontSize:13 }}>
+              <div style={{ color:"#94a3b8", marginBottom:3 }}>Réf <span style={{ color:"#93c5fd", fontFamily:"monospace" }}>{c.sku}</span> — {c.field}</div>
+              <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                <span style={{ color:"#94a3b8" }}>Actuel :</span><span style={{ color:"#fca5a5", fontWeight:700 }}>{c.current}</span>
+                <span style={{ color:"#64748b" }}>→</span><span style={{ color:"#86efac", fontWeight:700 }}>{c.incoming}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ color:"#94a3b8", fontSize:13, marginBottom:20 }}>Voulez-vous remplacer ces données par les nouvelles valeurs ?</div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button onClick={onCancel} style={btnG}>Annuler</button>
+          <button onClick={onConfirm} style={{ ...btnP, background:"#f59e0b" }}>Remplacer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── User Avatar ──────────────────────────────────────────────────────────────
+function UserAvatar({ userId, size=32 }) {
+  const [photo, setPhoto] = useState(null);
+  useEffect(()=>{
+    if (!userId) return;
+    db.get("budgy_photo_"+userId).then(p=>{ if(p) setPhoto(p); });
+  },[userId]);
+  if (photo) return <img src={photo} style={{ width:size, height:size, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} alt="" />;
+  return (
+    <div style={{ width:size, height:size, borderRadius:"50%", background:"rgba(255,255,255,0.12)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:size*0.45, flexShrink:0, color:"#94a3b8" }}>
+      👤
+    </div>
+  );
+}
+
+// ─── Name formatting helpers ──────────────────────────────────────────────────
+const fmtPrenom = s => s ? s.trim().split(/\s+/).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ") : "";
+const fmtNom = s => s ? s.trim().toUpperCase() : "";
+const fullName = (u) => u ? [fmtPrenom(u.firstName), fmtNom(u.lastName)].filter(Boolean).join(" ") : "";
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+const ADMIN_ID = "__ADMIN__";
+
+async function hashPassword(pwd) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pwd));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+// ─── Login / Register Modal ───────────────────────────────────────────────────
+function AuthModal({ onLogin }) {
+  const [tab, setTab] = useState("login");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [pwd, setPwd] = useState("");
+  const [pwd2, setPwd2] = useState("");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+
+  const ADMIN_DEFAULT_PWD = "LDLC-ADMIN-2025";
+
+  const handleLogin = async () => {
+    if (!loginEmail.trim()||!pwd) { setError("Renseignez votre email et mot de passe."); return; }
+    setPending(true); setError("");
+    try {
+      const isAdmin = loginEmail.trim().toUpperCase()==="ADMIN";
+      const users = await db.get("budgy_users_v1") || [];
+      if (users.length===0||!users.find(u=>u.id===ADMIN_ID)) {
+        const adminHash = await hashPassword(ADMIN_DEFAULT_PWD);
+        const admins = users.filter(u=>u.id!==ADMIN_ID);
+        await db.set("budgy_users_v1",[...admins,{ id:ADMIN_ID, firstName:"", lastName:"Admin", name:"Admin", email:"admin", role:"admin", hash:adminHash, approved:true }]);
+      }
+      const freshUsers = await db.get("budgy_users_v1") || [];
+      const user = isAdmin
+        ? freshUsers.find(u=>u.id===ADMIN_ID)
+        : freshUsers.find(u=>{
+          const input = loginEmail.trim().toLowerCase();
+          if ((u.email||"").toLowerCase()===input) return true;
+          if ((fullName(u)||u.name||"").toLowerCase()===input) return true;
+          return false;
+        });
+      if (!user) { setError("Email introuvable."); setPending(false); return; }
+      const hash = await hashPassword(pwd);
+      if (hash!==user.hash) { setError("Mot de passe incorrect."); setPending(false); return; }
+      if (!user.approved) { setError("Votre compte est en attente de validation par l'admin."); setPending(false); return; }
+      const displayName = fullName(user)||user.name||user.email;
+      session.set({ id:user.id, name:displayName, role:user.role });
+      onLogin({ id:user.id, name:displayName, role:user.role });
+    } catch(e) { setError("Erreur : "+e.message); }
+    setPending(false);
+  };
+
+  const handleRegister = async () => {
+    if (!firstName.trim()||!lastName.trim()||!regEmail.trim()||!pwd||!pwd2) { setError("Remplissez tous les champs."); return; }
+    if (pwd!==pwd2) { setError("Les mots de passe ne correspondent pas."); return; }
+    if (pwd.length<6) { setError("Mot de passe trop court (6 caractères minimum)."); return; }
+    if (!regEmail.includes("@")) { setError("Email invalide."); return; }
+    setPending(true); setError("");
+    try {
+      const users = await db.get("budgy_users_v1") || [];
+      if (users.find(u=>(u.email||"").toLowerCase()===regEmail.trim().toLowerCase())) {
+        setError("Cet email est déjà utilisé."); setPending(false); return;
+      }
+      const hash = await hashPassword(pwd);
+      const fn = fmtPrenom(firstName), ln = fmtNom(lastName);
+      const newUser = { id:"U-"+Date.now(), firstName:fn, lastName:ln, name:fn+" "+ln, email:regEmail.trim().toLowerCase(), role:"user", hash, approved:false };
+      await db.set("budgy_users_v1",[...users, newUser]);
+      setError(""); setTab("login");
+      setPwd(""); setPwd2(""); setLoginEmail(regEmail.trim().toLowerCase());
+      setFirstName(""); setLastName(""); setRegEmail("");
+    } catch(e) { setError("Erreur : "+e.message); }
+    setPending(false);
+  };
+
+  const tabBtn = (t,l) => (
+    <button onClick={()=>{setTab(t);setError("");}} style={{ flex:1, background:tab===t?"#3b82f6":"rgba(255,255,255,0.05)", border:tab===t?"none":"1px solid rgba(255,255,255,0.1)", color:tab===t?"#fff":"#94a3b8", borderRadius:8, padding:"9px 0", cursor:"pointer", fontSize:14, fontWeight:tab===t?700:400 }}>{l}</button>
+  );
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"#000", display:"flex", alignItems:"center", justifyContent:"center", zIndex:5000, padding:16 }}>
+      <div style={{ background:"#0f172a", border:"1px solid rgba(255,255,255,0.12)", borderRadius:20, width:"100%", maxWidth:400, padding:36 }}>
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <div style={{ fontSize:26, fontWeight:900, color:"#f1f5f9", marginBottom:4 }}>BUDGY</div>
+          <div style={{ color:"#475569", fontSize:13 }}>Suivi des budgets promotionnels</div>
+        </div>
+        <div style={{ display:"flex", gap:8, marginBottom:24 }}>
+          {tabBtn("login","Connexion")}
+          {tabBtn("register","Créer un compte")}
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          {tab==="login"?(
+            <div>
+              <label style={lbl}>Login</label>
+              <input value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} placeholder="" style={inp} onKeyDown={e=>e.key==="Enter"&&handleLogin()} autoFocus />
+            </div>
+          ):(
+            <>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                <div><label style={lbl}>Prénom</label><input value={firstName} onChange={e=>setFirstName(e.target.value)} placeholder="Jean" style={inp} autoFocus /></div>
+                <div><label style={lbl}>Nom</label><input value={lastName} onChange={e=>setLastName(e.target.value)} placeholder="DUPONT" style={inp} /></div>
+              </div>
+              <div>
+                <label style={lbl}>Email</label>
+                <input type="email" value={regEmail} onChange={e=>setRegEmail(e.target.value)} placeholder="prenom.nom@ldlc.com" style={inp} />
+              </div>
+            </>
+          )}
+          <div>
+            <label style={lbl}>Mot de passe</label>
+            <input type="password" value={pwd} onChange={e=>setPwd(e.target.value)} style={inp} onKeyDown={e=>e.key==="Enter"&&(tab==="login"?handleLogin():null)} />
+          </div>
+          {tab==="register"&&(
+            <div>
+              <label style={lbl}>Confirmer le mot de passe</label>
+              <input type="password" value={pwd2} onChange={e=>setPwd2(e.target.value)} style={inp} />
+            </div>
+          )}
+          {error&&<div style={{ color:"#fca5a5", fontSize:13, background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:8, padding:"10px 14px" }}>{error}</div>}
+          <button onClick={tab==="login"?handleLogin:handleRegister} disabled={pending}
+            style={{ ...btnP, opacity:pending?0.6:1, cursor:pending?"wait":"pointer", marginTop:4 }}>
+            {pending?"...":(tab==="login"?"Se connecter":"Créer le compte")}
+          </button>
+          
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin Panel Modal ────────────────────────────────────────────────────────
+function AdminPanel({ currentUser, onClose }) {
+  const [users, setUsers] = useState([]);
+  const [newPwd, setNewPwd] = useState({});
+  const [newEmail, setNewEmail] = useState({});
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{ db.get("budgy_users_v1").then(u=>setUsers(u||[])); },[]);
+
+  const refresh = () => db.get("budgy_users_v1").then(u=>setUsers(u||[]));
+
+  const approve = async (id) => {
+    const next = users.map(u=>u.id===id?{...u,approved:true}:u);
+    await db.set("budgy_users_v1",next); setUsers(next); setMsg("Compte approuvé.");
+  };
+  const remove = async (id) => {
+    if (id===ADMIN_ID) { setMsg("Impossible de supprimer l'admin."); return; }
+    const next = users.filter(u=>u.id!==id);
+    await db.set("budgy_users_v1",next); setUsers(next); setMsg("Compte supprimé.");
+  };
+  const changePassword = async (id) => {
+    const pwd = newPwd[id]||"";
+    if (pwd.length<6) { setMsg("Mot de passe trop court."); return; }
+    const hash = await hashPassword(pwd);
+    const next = users.map(u=>u.id===id?{...u,hash}:u);
+    await db.set("budgy_users_v1",next); setUsers(next);
+    setNewPwd(p=>({...p,[id]:""})); setMsg("Mot de passe mis à jour.");
+  };
+  const updateEmail = async (id) => {
+    const email = (newEmail[id]!==undefined?newEmail[id]:users.find(u=>u.id===id)?.email||"").trim().toLowerCase();
+    if (!email||!email.includes("@")) { setMsg("Email invalide."); return; }
+    const next = users.map(u=>u.id===id?{...u,email}:u);
+    await db.set("budgy_users_v1",next); setUsers(next);
+    setNewEmail(p=>({...p,[id]:undefined})); setMsg("Email mis à jour.");
+  };
+
+  const exportData = async () => {
+    const ops = await db.get("promo_ops_v1") || [];
+    const usersData = (await db.get("budgy_users_v1") || []).map(u=>({...u, hash:"[REDACTED]"}));
+    const bundle = { version:1, exportedAt:new Date().toISOString(), ops, users:usersData };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "budgy-export-"+new Date().toISOString().slice(0,10)+".json";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    setMsg("Export JSON téléchargé ✓");
+  };
+
+  const exportCsv = async () => {
+    const ops = await db.get("promo_ops_v1") || [];
+    const hdrs = ["ID","Marque","Fournisseur","Acheteur","Enseignes","Date début","Date fin","Devise","Total HT","Statut","Déclaré le","Doc Partenaire","Doc LDLC","ID Partenaire","ID LDLC"];
+    const rows = ops.map(op=>{
+      const total = computeTotal(op.products||[]);
+      return [op.id,op.marque,op.fournisseur,op.acheteur,(op.enseignes||[]).join("|"),op.dateStart,op.dateEnd,op.currency||"EUR",total.toFixed(2),statusOf(op),op.rapportDate||"",op.docPartner||"",op.docLdlc||"",op.idPartner||"",op.idLdlc||""]
+        .map(v=>'"'+String(v||"").replace(/"/g,'""')+'"').join(";");
+    });
+    const csv = "\uFEFF" + hdrs.map(h=>'"'+h+'"').join(";") + "\n" + rows.join("\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "budgy-operations-"+new Date().toISOString().slice(0,10)+".csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    setMsg("CSV téléchargé ✓");
+  };
+
+  const importData = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async e => {
+      try {
+        const bundle = JSON.parse(e.target.result);
+        if (!bundle.ops||!Array.isArray(bundle.ops)) throw new Error("Format invalide");
+        const existing = await db.get("promo_ops_v1") || [];
+        const existingIds = new Set(existing.map(o=>o.id));
+        const newOps = bundle.ops.filter(o=>!existingIds.has(o.id));
+        await db.set("promo_ops_v1", [...existing, ...newOps]);
+        setMsg("Import réussi : "+newOps.length+" nouvelle(s) opération(s), "+(bundle.ops.length-newOps.length)+" ignorée(s) (déjà présentes).");
+      } catch(err) { setMsg("Erreur d'import : "+err.message); }
+    };
+    reader.readAsText(file);
+  };
+
+  const pending = users.filter(u=>!u.approved&&u.id!==ADMIN_ID);
+  const approved = users.filter(u=>u.approved||u.id===ADMIN_ID);
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.9)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:4000, padding:16 }}>
+      <div style={{ background:"#0f172a", border:"1px solid rgba(255,255,255,0.12)", borderRadius:18, width:"100%", maxWidth:600, maxHeight:"88vh", overflowY:"auto", padding:32 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
+          <h2 style={{ margin:0, color:"#f1f5f9", fontSize:19, fontWeight:800 }}>⚙️ Panneau Admin</h2>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:"#64748b", fontSize:22, cursor:"pointer" }}>✕</button>
+        </div>
+        {msg&&<div style={{ color:"#86efac", fontSize:13, marginBottom:16, background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.3)", borderRadius:8, padding:"9px 14px" }}>{msg}</div>}
+
+        {pending.length>0&&(
+          <div style={{ marginBottom:22 }}>
+            <div style={{ color:"#fcd34d", fontSize:13, fontWeight:700, marginBottom:10 }}>⏳ En attente de validation ({pending.length})</div>
+            {pending.map(u=>(
+              <div key={u.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.25)", borderRadius:8, padding:"10px 14px", marginBottom:8 }}>
+                <span style={{ color:"#e2e8f0", fontSize:14 }}>{fullName(u)||u.name}</span>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={()=>approve(u.id)} style={{ background:"#22c55e", border:"none", color:"#fff", borderRadius:7, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:700 }}>✓ Approuver</button>
+                  <button onClick={()=>remove(u.id)} style={{ background:"rgba(239,68,68,0.2)", border:"1px solid rgba(239,68,68,0.4)", color:"#fca5a5", borderRadius:7, padding:"6px 10px", cursor:"pointer", fontSize:13 }}>✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div>
+          {/* Export / Import */}
+          <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:"14px 16px", marginBottom:20 }}>
+            <div style={{ color:"#94a3b8", fontSize:13, fontWeight:700, marginBottom:12 }}>↕️ Exporter / Importer des données</div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              <button onClick={exportData} style={{ ...btnG, fontSize:13 }}>⬇️ Export JSON</button>
+              <button onClick={exportCsv} style={{ ...btnG, fontSize:13 }}>⬇️ Export CSV</button>
+              <label style={{ ...btnG, fontSize:13 }}>
+                ⬆️ Import JSON
+                <input type="file" accept=".json" style={{ display:"none" }} onChange={e=>importData(e.target.files[0])} />
+              </label>
+            </div>
+            <div style={{ color:"#475569", fontSize:11, marginTop:8 }}>L'import JSON fusionne les opérations sans écraser les existantes. Les mots de passe ne sont pas exportés.</div>
+          </div>
+          <div style={{ color:"#94a3b8", fontSize:13, fontWeight:700, marginBottom:10 }}>👥 Utilisateurs actifs</div>
+          {approved.map(u=>(
+            <div key={u.id} style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:8, padding:"12px 14px", marginBottom:8 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                <div>
+                  <span style={{ color:"#f1f5f9", fontSize:14, fontWeight:600 }}>{fullName(u)||u.name}</span>
+                  {u.id===ADMIN_ID&&<span style={{ marginLeft:8, color:"#fcd34d", fontSize:11, fontWeight:700 }}>ADMIN</span>}{u.email&&u.id!==ADMIN_ID&&<span style={{ color:"#475569", fontSize:11, marginLeft:6 }}>{u.email}</span>}
+                </div>
+                {u.id!==ADMIN_ID&&<button onClick={()=>remove(u.id)} style={{ background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.3)", color:"#fca5a5", borderRadius:7, padding:"5px 10px", cursor:"pointer", fontSize:12 }}>Supprimer</button>}
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <input type="password" placeholder="Nouveau mot de passe" value={newPwd[u.id]||""} onChange={e=>setNewPwd(p=>({...p,[u.id]:e.target.value}))}
+                  style={{ ...inp, fontSize:13, padding:"7px 10px", flex:1 }} />
+                <button onClick={()=>changePassword(u.id)} style={{ background:"rgba(59,130,246,0.2)", border:"1px solid #3b82f6", color:"#93c5fd", borderRadius:7, padding:"7px 12px", cursor:"pointer", fontSize:13 }}>Changer</button>
+              </div>
+              {u.id!==ADMIN_ID&&<div style={{ display:"flex", gap:8, marginTop:6 }}>
+                <input type="email" placeholder="Adresse email" value={newEmail[u.id]!==undefined?newEmail[u.id]:(u.email||"")} onChange={e=>setNewEmail(p=>({...p,[u.id]:e.target.value}))}
+                  style={{ ...inp, fontSize:13, padding:"7px 10px", flex:1 }} />
+                <button onClick={()=>updateEmail(u.id)} style={{ background:"rgba(59,130,246,0.2)", border:"1px solid #3b82f6", color:"#93c5fd", borderRadius:7, padding:"7px 12px", cursor:"pointer", fontSize:13 }}>Email</button>
+              </div>}
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:8 }}>
+                <UserAvatar userId={u.id} size={32} />
+                <label style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.15)", color:"#94a3b8", borderRadius:7, padding:"6px 14px", cursor:"pointer", fontSize:12 }}>
+                  📷 Changer la photo
+                  <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
+                    const file=e.target.files[0]; if(!file) return;
+                    const reader=new FileReader();
+                    reader.onload=ev=>{ db.set("budgy_photo_"+u.id, ev.target.result); setMsg("Photo mise à jour."); };
+                    reader.readAsDataURL(file);
+                  }} />
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Smart Paste Modal ────────────────────────────────────────────────────────
+function PasteModal({ onApply, onClose, existingProducts, opCurrency="EUR" }) {
+  const [pasteText, setPasteText] = useState("");
+  const [step, setStep] = useState("paste");
+  const [allRows, setAllRows] = useState([]);
+  const [headers, setHeaders] = useState([]);
+  const [hasHeader, setHasHeader] = useState(true);
+  const [currency, setCurrency] = useState(opCurrency);
+  const [mapping, setMapping] = useState({});
+  const [preview, setPreview] = useState(null);
+  const [pendingConflicts, setPendingConflicts] = useState(null);
+  const [error, setError] = useState("");
+
+  const ALL_FIELDS = [
+    { key:"sku", label:"Ref partenaire" },
+    { key:"refLdlc", label:"Ref LDLC" },
+    { key:"designation", label:"Désignation" },
+    { key:"budget", label:"Budget HT/pièce" },
+    { key:"qty", label:"Ventes (quantité)" },
+  ];
+
+  const autoDetect = (hdrs) => {
+    const a={};
+    hdrs.forEach(h=>{ const hl=h.toLowerCase();
+      if (!a.sku&&(hl.includes("sku")||hl.includes("part")||hl.includes("code")||hl.includes("partenaire")||(hl.includes("ref")&&!hl.includes("ldlc")))) a.sku=h;
+      if (!a.refLdlc&&hl.includes("ldlc")) a.refLdlc=h;
+      if (!a.designation&&(hl.includes("desig")||hl.includes("nom")||hl.includes("model")||hl.includes("produit")||hl.includes("libel"))) a.designation=h;
+      if (!a.budget&&(hl.includes("budget")||hl.includes("montant")||hl.includes("prix")||hl.includes("amount"))) a.budget=h;
+      if (!a.qty&&(hl.includes("qté")||hl.includes("qty")||hl.includes("quant")||hl.includes("vente")||hl.includes("sold")||hl.includes("vendu"))) a.qty=h;
+    });
+    return a;
+  };
+
+  const handleParse = () => {
+    if (!pasteText.trim()) { setError("Collez des données depuis Excel."); return; }
+    const parsed=parsePastedText(pasteText);
+    if (!parsed.length) { setError("Aucune donnée."); return; }
+    setAllRows(parsed);
+    const looksLikeHeader=parsed[0].some(v=>isNaN(parseFloat(v))&&v.trim().length>0&&parseDate(v)==="");
+    setHasHeader(looksLikeHeader);
+    const hdrs=looksLikeHeader?parsed[0]:Array.from({length:Math.max(...parsed.map(r=>r.length))},(_,i)=>`Col. ${String.fromCharCode(65+i)}`);
+    setHeaders(hdrs); setMapping(autoDetect(hdrs)); setError(""); setStep("map");
+  };
+  const toggleHeader = () => {
+    const next=!hasHeader; setHasHeader(next);
+    const hdrs=next?allRows[0]:Array.from({length:Math.max(...allRows.map(r=>r.length))},(_,i)=>`Col. ${String.fromCharCode(65+i)}`);
+    setHeaders(hdrs); setMapping(autoDetect(hdrs)); setPreview(null);
+  };
+  const buildPreview = () => {
+    if (!mapping.sku&&!mapping.refLdlc&&!mapping.budget&&!mapping.qty) { setError("Mappez au moins une colonne."); return; }
+    const get=k=>mapping[k]?headers.indexOf(mapping[k]):-1;
+    const iS=get("sku"),iL=get("refLdlc"),iD=get("designation"),iB=get("budget"),iQ=get("qty");
+    const keyCol=iS>=0?iS:iL;
+    const dataRows=hasHeader?allRows.slice(1):allRows;
+    const noRefCol = iS<0 && iL<0;
+    const rawRows=dataRows
+      .filter(r=>noRefCol || (r[keyCol]!=null&&String(r[keyCol]).trim()!==""))
+      .map((r,rowIdx)=>({
+        sku: iS>=0?String(r[iS]||"").trim():"",
+        refLdlc: iL>=0?String(r[iL]||"").trim():"",
+        designation: iD>=0?String(r[iD]||"").trim():"",
+        budget: iB>=0?(parseFloat(String(r[iB]||"").replace(/[^0-9,.-]/g,"").replace(",","."))||null):null,
+        currency,
+        qty: iQ>=0?Math.max(0,parseFloat(String(r[iQ]||"").replace(/[^0-9,.-]/g,"").replace(",","."))||0):null,
+        _rowIdx: rowIdx, // for position-based matching
+      }));
+    if (!rawRows.length) { setError("Aucune ligne valide."); return; }
+    // Aggregate: sum qty for duplicate refs
+    const seen={};
+    rawRows.forEach(r=>{
+      const key=r.sku||r.refLdlc||("__pos_"+r._rowIdx);
+      if(seen[key]){
+        if(r.qty!=null) seen[key].qty=(seen[key].qty||0)+(r.qty||0);
+        if(r.budget!=null&&seen[key].budget==null) seen[key].budget=r.budget;
+      } else { seen[key]={...r}; }
+    });
+    const rows=Object.values(seen);
+    setPreview(rows); setError(""); setStep("preview");
+  };
+  const findExisting=(row,idx)=>existingProducts.find((p,pi)=>{
+    if(row.sku&&p.sku&&row.sku.toLowerCase()===p.sku.toLowerCase()) return true;
+    if(row.refLdlc&&p.refLdlc&&row.refLdlc.toLowerCase()===p.refLdlc.toLowerCase()) return true;
+    if(!row.sku&&!row.refLdlc&&pi===idx) return true; // position-based
+    return false;
+  });
+  const handleConfirmPreview = () => {
+    const conflicts=[];
+    preview.forEach((row,ri)=>{ const ex=findExisting(row,ri); if(!ex) return; const id=row.sku||row.refLdlc;
+      const chk=(f,l,nv)=>{ if(nv===null||nv===undefined||nv==="") return; const cur=ex[f]; if(!cur&&cur!==0) return; if(String(cur)!==String(nv)) conflicts.push({sku:id,field:l,current:cur,incoming:nv}); };
+      chk("budget","Budget HT",row.budget); chk("qty","Ventes",row.qty); chk("designation","Désignation",row.designation);
+    });
+    if (conflicts.length>0) setPendingConflicts(conflicts); else doApply(preview);
+  };
+  const doApply=rows=>{ onApply(rows,currency); setPendingConflicts(null); };
+
+  return (
+    <>
+      <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.9)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1200, padding:16 }}>
+        <div style={{ background:"#0f172a", border:"1px solid rgba(255,255,255,0.12)", borderRadius:18, width:"100%", maxWidth:660, maxHeight:"92vh", overflowY:"auto", padding:32 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+            <h2 style={{ margin:0, color:"#f1f5f9", fontSize:19, fontWeight:800 }}>Coller des données</h2>
+            <button onClick={tryClose} style={{ background:"none", border:"none", color:"#64748b", fontSize:24, cursor:"pointer" }}>✕</button>
+          </div>
+          {step==="paste"&&(
+            <>
+              <div style={{ color:"#9ca3af", fontSize:12, marginBottom:8 }}>
+                Sélectionnez vos cellules dans votre tableau Excel ou Outlook, puis copiez-les et collez-les ici.
+              </div>
+              <textarea value={pasteText} onChange={e=>{setPasteText(e.target.value);setError("");}} autoFocus
+                placeholder="Collez ici (Ctrl+V)…"
+                style={{ ...inp, minHeight:150, resize:"vertical", fontFamily:"monospace", fontSize:13, lineHeight:1.7, marginBottom:14 }} />
+              {error&&<div style={{ color:"#fca5a5", fontSize:13, marginBottom:10 }}>{error}</div>}
+              <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+                <button onClick={onClose} style={btnG}>Annuler</button>
+                <button onClick={handleParse} style={btnP}>Analyser →</button>
+              </div>
+            </>
+          )}
+          {step==="map"&&(
+            <>
+              <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12, background:"rgba(255,255,255,0.04)", borderRadius:8, padding:"10px 14px" }}>
+                <span style={{ color:"#94a3b8", fontSize:13 }}>La 1ère ligne contient les noms de colonnes</span>
+                <button onClick={toggleHeader} style={{ background:hasHeader?"#22c55e":"rgba(255,255,255,0.08)", border:hasHeader?"none":"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:20, padding:"5px 16px", cursor:"pointer", fontSize:12, fontWeight:700 }}>{hasHeader?"✓ Oui":"Non"}</button>
+              </div>
+              {mapping.budget&&(
+                <div style={{ marginBottom:12, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.3)", borderRadius:9, padding:"11px 14px" }}>
+                  <label style={{ ...lbl, color:"#93c5fd" }}>Devise des budgets</label>
+                  <div style={{ display:"flex", gap:8 }}>
+                    {["EUR","USD"].map(cur=>(
+                      <button key={cur} onClick={()=>setCurrency(cur)} style={{ background:currency===cur?(cur==="EUR"?"#3b82f6":"#f59e0b"):"rgba(255,255,255,0.07)", border:currency===cur?"none":"1px solid rgba(255,255,255,0.15)", color:currency===cur?"#fff":"#94a3b8", borderRadius:8, padding:"8px 22px", cursor:"pointer", fontSize:14, fontWeight:700 }}>
+                        {cur==="EUR"?"€ EUR":"$ USD"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{ marginBottom:8, background:"rgba(255,255,255,0.03)", borderRadius:7, padding:"8px 12px", fontSize:12, color:"#64748b" }}>
+                Colonnes : {headers.map((h,i)=><span key={i} style={{ color:"#93c5fd", marginRight:7 }}>{h}</span>)}
+              </div>
+              <div style={{ color:"#64748b", fontSize:12, marginBottom:10 }}>Laissez "— non présent —" si la colonne n'existe pas.</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9, marginBottom:16 }}>
+                {ALL_FIELDS.map(f=>(
+                  <div key={f.key} style={{ ...(f.key==="qty"?{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"8px 10px"}:{}) }}>
+                    <label style={lbl}>{f.label}</label>
+                    <select value={mapping[f.key]||""} onChange={e=>setMapping(m=>({...m,[f.key]:e.target.value}))} style={sel}>
+                      <option value="">— non présent —</option>
+                      {headers.map(h=><option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              {error&&<div style={{ color:"#fca5a5", fontSize:13, marginBottom:10 }}>{error}</div>}
+              <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+                <button onClick={()=>{setStep("paste");setError("");}} style={btnG}>← Retour</button>
+                <button onClick={buildPreview} style={btnP}>Aperçu →</button>
+              </div>
+            </>
+          )}
+          {step==="preview"&&preview&&(
+            <>
+              <div style={{ color:"#86efac", fontSize:13, marginBottom:12, background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.3)", borderRadius:8, padding:"10px 14px" }}>
+                ✓ {preview.length} ligne{preview.length>1?"s":""} prête{preview.length>1?"s":""}
+              </div>
+              <div style={{ maxHeight:280, overflowY:"auto", overflowX:"auto", marginBottom:14 }}>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                  <thead>
+                    <tr style={{ borderBottom:"1px solid rgba(255,255,255,0.1)" }}>
+                      {mapping.sku&&<th style={{ textAlign:"left", color:"#64748b", padding:"5px 9px", fontWeight:700, fontSize:11 }}>Ref partenaire</th>}
+                      {mapping.refLdlc&&<th style={{ textAlign:"left", color:"#64748b", padding:"5px 9px", fontWeight:700, fontSize:11 }}>Ref LDLC</th>}
+                      {mapping.designation&&<th style={{ textAlign:"left", color:"#64748b", padding:"5px 9px", fontWeight:700, fontSize:11 }}>Désignation</th>}
+                      {mapping.budget&&<th style={{ textAlign:"left", color:"#64748b", padding:"5px 9px", fontWeight:700, fontSize:11 }}>Budget HT</th>}
+                      {mapping.qty&&<th style={{ textAlign:"left", color:"#e2e8f0", padding:"5px 9px", fontWeight:700, fontSize:11 }}>Ventes</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.map((p,i)=>{ const isNew=!findExisting(p,i); return (
+                      <tr key={i} style={{ borderBottom:"1px solid rgba(255,255,255,0.06)", background:isNew?"rgba(59,130,246,0.04)":"transparent" }}>
+                        {mapping.sku&&<td style={{ padding:"6px 9px", color:"#93c5fd", fontFamily:"monospace" }}>{p.sku}{isNew&&<span style={{ color:"#3b82f6", fontSize:9, marginLeft:5 }}>NEW</span>}</td>}
+                        {mapping.refLdlc&&<td style={{ padding:"6px 9px", color:"#cbd5e1" }}>{p.refLdlc||"—"}</td>}
+                        {mapping.designation&&<td style={{ padding:"6px 9px", color:"#cbd5e1" }}>{p.designation||"—"}</td>}
+                        {mapping.budget&&<td style={{ padding:"6px 9px", color:"#e2e8f0" }}>{p.budget!=null?fmt(p.budget,currency):"—"}</td>}
+                        {mapping.qty&&<td style={{ padding:"6px 9px", color:"#f1f5f9", fontWeight:700 }}>{p.qty!=null?p.qty.toLocaleString("fr-FR"):"—"}</td>}
+                      </tr>
+                    );})}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+                <button onClick={()=>setStep("map")} style={btnG}>← Modifier</button>
+                <button onClick={handleConfirmPreview} style={{ ...btnP, background:"#22c55e" }}>✓ Importer</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+      {pendingConflicts&&<ConflictDialog conflicts={pendingConflicts} onConfirm={()=>doApply(preview)} onCancel={()=>setPendingConflicts(null)} />}
+    </>
+  );
+}
+
+// ─── PDF Export ───────────────────────────────────────────────────────────────
+function exportPdf(op) {
+  const cur = op.currency||"EUR";
+  const totalHT = computeTotal(op.products||[]);
+  const LOGO = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCADXAVIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD8qqKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAoooo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j4jeObWay0qS38KWUoKsdOBM5Hp5p5X6qAfegD6//ad/au0X4I6LPp2mXEGpeMrhCsFkp3rbZH+smx0A7L1P05r8t9Z1e81/VrvUtQuZLy+u5WmnnlOWkdjkk1Xu7ua+nee4leeeQ7nllYszE9SSeSaiFAH2x8Nnx8PvD/8A15x/yrfeQZrwfwp+0PoegeGdM02bT9QkltYFiZowm0kDtlq0m/ab0Bv+YZqX/fMf/wAXQB6+71XkevJG/aW0Bv8AmG6l/wB8x/8AxdRN+0loR/5huo/98x//ABdAHrLvUEj15S37Ruhn/mHah/3zH/8AFVGf2iNDJ/5B2of98p/8VQByvxC8UXnhH4tXGoWb/MscYeNj8si45U1674P8a6b4z09LizlCzAfvbZyN8Z9/Ue9fOHxC8TW/i7xNNqVrHLFE6KoWYDdkDHYmsXTtTutJuo7mzuJLa4Q5WSJiCKAPsiivCPD/AO0DfWqpHq9kl6o4MsJ2P9SOh/Su2svjn4Wu1BlmuLNiOVmhJx/3zmgD0GiuJk+M3hGIEjUi/skEhP8A6DWTf/H/AMPWykW9ve3b9sIEX8yf6UAcZ+0L/wAjTY/9ev8A7Ma8srqfiF43/wCE61eO8+y/ZFjj8tU37iRknJOB61y1ABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAGaKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA//Z";
+
+  const FAVICONS = {
+  "LDLC.com": "data:image/gif;base64,R0lGODlhEAAQAOYAAAg9hwU9hwhBiQg+iAQ8hghCigc+hwA5hP///w1DigAzgAN5swVenwxCihZKjwJ7tenu9Yqlx9nh7QNzr9jh7LvK3gVeoMrW5TxxqA1Di3qYv8Xe7AVcnQCRxh1PkgpBiQdFjACQxQhBigCXyQCbzQY9hwGHvsnU5QhEjNzk7rbG3BRIjQVlpAY+h6u+1gg8huvw9QhCiwN5tLzJ3QVbndDZ6D9zqQGTxwlAiYqkxgGOwxFGjQZUmH2ZwOXr8+Lo8QF+uAE1gQc+iAJ1sMff7MHN4AZVmQVdnwE0gQ9EiwCczQc/iAVcnm+PugVfoANwrRVJjgg+hwg/iAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAAAAAAALAAAAAAQABAAAAeJgFKCg4SFhoeIiYqKJQRSAQQtUlEDggBRUVJCSVA4Ow4DBygiAAAgBTFSSBo+Hi4wNTYmDFELIws8AAoRCCsXKjNEHTQcSkcWDLo5CD0QFUUbIUMyJCxOTFJBTRQ/EiknGEA6DxM3T0ZSSx8ZCQ0JBAcCAlIvBVLzUgYB+wEGk5STFgkcSLCgoEAAOw==",
+  "LDLC.pro": "data:image/gif;base64,R0lGODlhEAAQAPdAAMEAK////+B/lWkAZwBmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGwAAABj21KsBAMx27gAY9gAAARHkAAB2WAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC3AMHzQAAAAOwAAAAY9pcADgF6BCgAAHZYElQqAAAgdlgAGwDBzAAAAfM4ABAAwQAY9+3gI9+ldgB27QAAAAAAAAAAAJQAAAAY91XGi/eUduUAGHZVxgAAAP//ABgEjwCuba5tGAAYAAAAAAAAABj3bABAAAAAAAAAABj3WAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAgEBAFIAGHSaQAAAAAAAAMAAtwLR7QAAAAACAA8AAAETAAAAJPNAAAAAwQAAAAAC8N44AAEC0QAAANHtuPe0AiMAGHbt4AAC8PwqAC527HZUyQAC8PfoAPAAGAAY9wAACAAOAHQAAACtuAAAAALwAMAAAALR7Y////fwBPAAGHSaUxj36G0YAAAArgAAAAAAAAAAAAAAAAAAAOz8KsgrdvB2VAAAAhz4GCH5BAkAAP8ALAAAAAAQABAAAAhFAP/9A0CwoEEAAgUeXFhQIcOFAx9KnEhRYgCCATIKAHCRoICMGTGK7MixYMeTJUViBKmRY8iPISvKnPkwYkWHNxNOTBgQADs=",
+  "Materiel.net": "data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAi5APcJHEgMDbGBCBGiAQCAHkM0CQUujEFv37l99GIAEDNwort9H4WBxKhx0j4AmTCi8mNxnx9UHzMZOLkP1UpU+3rVJITK1b4VNF2lcoXzIippqaTti0FTms1U+0SiymZzadNU2IrWlOZK6UwANbNO28drH1KkVsEizdryFVelTMEeTYVzmFlUWPcdoIn1aM59WZ3ug7FPjBg/frruM1czFSE/YnBIFHMjAEMcDAHEEAMxorJMoJVFDAgAOw==",
+  "TopAchat": "data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAiHAOE8sFABQgULAw8mhADHAkKHBR9AGEjQIMKDCvdpDFUhIUELBg0+0LhPk8WQHw9aIAkKyEOMIUGRZDlwIISKcGZqtGOxAkaCIzWCmlixYsGCLC16hFmB5CaFFWs6DLov1AOKKqFS3RfNiNSCHx9Emwmnp9GHZI/eXKjw6tWUDY8+dDgVIZyAADs=",
+  "RueDuCommerce": "data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAirAPcJ3KcsjYwDCMcoG8gQx4EADxEgDJBm2UBlCCBmRChg4oGFyiAe2PiwpMQDxA5mRJMGByUcb8Y41FjyAI5JODIdGNPyIMQAEgNoSpMmEwI0k9Cc/AlRBg6eT58G0AgRh4wGP20ixDEzgINJRdNomjR00ps0k4LiiOFgjKZMcHOmofgwAA6imWSkQZCJJ96Sdp3atSvmgFOrCAEDZsq4rmKRPylInky5so+AADs="
+};
+  const marqueUp = (op.marque||'').toUpperCase();
+  const fournUp = op.fournisseur&&op.fournisseur!==op.marque?op.fournisseur.toUpperCase():'';
+  const idPart = op.idPartner?'('+op.idPartner+')':'';
+  const title = 'Rapport d\'opération promotionnelle '+marqueUp+(fournUp?' @ '+fournUp:'')+(idPart?' '+idPart:'');
+  const meta = [
+    op.idLdlc?'ID LDLC : '+op.idLdlc:'',
+    op.dateStart?'Du '+displayDate(op.dateStart)+' au '+displayDate(op.dateEnd):'',
+    'Devise : '+cur,
+  ].filter(Boolean).join(' &nbsp;|&nbsp; ');
+  const enseignesList = (op.enseignes||[]);
+  const enseignesHtml = enseignesList.length
+    ? '<div class="enseignes-row"><span>Enseigne(s) participante(s) :</span>'+enseignesList.map(e=>'<span class="enseigne-item">'+(FAVICONS[e]?'<img src="'+FAVICONS[e]+'" style="width:12px;height:12px;vertical-align:middle;margin-right:3px;border-radius:2px;display:inline-block;object-fit:contain">':'')+e+'</span>').join('')+'</div>'
+    : '';
+  const rows = (op.products||[]).map(p=>{
+    const ht=(parseFloat(p.budget)||0)*(parseFloat(p.qty)||0);
+    return `<tr>
+      <td>${p.sku||""}</td><td>${p.refLdlc||""}</td><td>${p.designation||""}</td>
+      <td class="r">${p.budget?fmt(parseFloat(p.budget),cur):""}</td>
+      <td class="r">${p.qty!=null&&p.qty!==""?Number(p.qty).toLocaleString("fr-FR"):""}</td>
+      <td class="r b">${ht>0?fmt(ht,cur):""}</td>
+    </tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+  <title>${title}</title>
+  <style>
+    @page { size: A4 portrait; margin: 15mm; }
+    body { font-family: Arial, sans-serif; font-size: 20px; color: #111; margin: 20px; }
+    .header { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; }
+    .header img { height: 80px; width: auto; }
+    .header-text h1 { margin: 0 0 3px; font-size: 28px; color: #111; }
+    .header-text .meta { color: #555; font-size: 18px; }
+    .enseignes-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:8px; font-size:18px; color:#555; }
+    .enseigne-item { display:inline-flex; align-items:center; gap:3px; font-size:10px; color:#333; margin-right:8px; }
+    .enseignes-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:6px; font-size:18px; color:#555; }
+    .enseigne-item { display:inline-flex; align-items:center; gap:3px; font-size:10px; color:#333; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 8px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+    th { background: #e8e8e8; text-align: left; padding: 10px 14px; font-size: 18px; border-bottom: 2px solid #bbb; }
+    td { padding: 9px 14px; border-bottom: 1px solid #e0e0e0; font-size: 18px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    td:nth-child(3) { white-space:normal; word-wrap:break-word; }
+    tr:nth-child(even) td { background: #f8f8f8; }
+    .r { text-align: right; }
+    .b { font-weight: bold; }
+    .total { text-align: right; margin-top: 16px; font-size: 24px; font-weight: bold; color: #16a34a; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style></head><body>
+  <div class="header">
+    <img src="${LOGO}" alt="Groupe LDLC">
+    <div class="header-text">
+      <h1>${title}</h1>
+      <div class="meta">${meta}</div>
+      ${enseignesHtml}
+    </div>
+  </div>
+  <hr>
+  <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+    <colgroup>
+      <col style="width:12%"><col style="width:12%"><col style="width:auto">
+      <col style="width:11%"><col style="width:8%"><col style="width:11%">
+    </colgroup>
+    <thead><tr>
+      <th>Ref partenaire</th><th>Ref LDLC</th><th>Désignation</th>
+      <th class="r">Budget HT</th><th class="r">Ventes</th><th class="r">Total HT</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="total">Total HT : ${fmt(totalHT,cur)}</div>
+  </body></html>`;
+
+  // Direct download — simplest, most reliable, no popup
+  const filename = ([op.marque,op.idPartner||op.idLdlc].filter(Boolean).join("_").replace(/[^a-z0-9_]/gi,"_")||"promo")+".html";
+  const blob = new Blob([html], {type:"text/html;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+
+// ─── Edition Modal ────────────────────────────────────────────────────────────
+function EditionModal({ op, onSave, onClose, currentUser, allUsers=[], fetchRate }) {
+  const isNew = !op?.id;
+  const blank = { id:"", idLdlc:"", idPartner:"", fournisseur:"", marque:"", acheteur:currentUser?.name||"", contact:"", enseignes:[], dateStart:"", dateEnd:"", currency:"EUR", fxRate:1, docLdlc:"", docPartner:"", rapportDate:null, products:[], notes:"" };
+  const [form, setForm] = useState(isNew?blank:{ ...blank, ...op, acheteur:op.acheteur||"" });
+  const [showPaste, setShowPaste] = useState(false);
+  const [alertMsg, setAlertMsg] = useState(null);
+  const [dupConfirm, setDupConfirm] = useState(null);
+  const [rapportReconfirm, setRapportReconfirm] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [fetchingRate, setFetchingRate] = useState(false);
+  const initialForm = useRef(JSON.stringify(isNew?blank:{...blank,...op,acheteur:op?.acheteur||""}));
+  const isDirty = JSON.stringify(form) !== initialForm.current;
+  const tryClose = () => { if(isDirty) setConfirmLeave(true); else onClose(); };
+
+  useEffect(()=>{
+    const handler = e => { if(e.key==="Escape") tryClose(); };
+    window.addEventListener("keydown", handler);
+    return ()=>window.removeEventListener("keydown", handler);
+  },[isDirty]);
+
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  // When currency changes, pre-fill rate with fallback; try live rate in background
+  useEffect(()=>{
+    if (form.currency==="EUR") { set("fxRate",1); return; }
+    const fallback = FALLBACK_RATES[form.currency]||0.92;
+    if (!form.fxRate||form.fxRate===1) set("fxRate", fallback);
+    // Try to get live rate in background
+    setFetchingRate(true);
+    fetchFxToEur(form.currency).then(rate=>{
+      if(rate) set("fxRate", rate);
+      setFetchingRate(false);
+    });
+  },[form.currency]);
+
+  const changeProd=(i,k,v)=>{
+    if((k==="qty"||k==="budget")&&v!==""&&parseFloat(v)<0) return;
+    setForm(f=>({ ...f, products:f.products.map((p,j)=>j===i?{...p,[k]:v}:p) }));
+  };
+  const checkDupRef=(i,k,v)=>{
+    if(!(k==="sku"||k==="refLdlc")||!v.trim()) return;
+    const vn=v.trim().toLowerCase();
+    const dup=form.products.some((p,j)=>j!==i&&((k==="sku"&&(p.sku||"").trim().toLowerCase()===vn)||(k==="refLdlc"&&(p.refLdlc||"").trim().toLowerCase()===vn)));
+    if(dup) setAlertMsg("Ce produit est déjà listé dans cette opération.");
+  };
+  const removeProd=i=>set("products",form.products.filter((_,j)=>j!==i));
+  const addRow=()=>set("products",[...form.products,{ sku:"", refLdlc:"", designation:"", budget:"", qty:"" }]);
+
+  const handlePasteApply=(rows,currency)=>{
+    // Compute everything synchronously outside setForm
+    const currentProducts = form.products;
+    const opIsNew = currentProducts.length===0;
+    const updatedProducts = [...currentProducts];
+    const unknowns=[];
+
+    rows.forEach((row,ri)=>{
+      const idx = (row.sku||row.refLdlc)
+        ? updatedProducts.findIndex(p=>
+            (row.sku&&p.sku&&row.sku.toLowerCase()===p.sku.toLowerCase())||
+            (row.refLdlc&&p.refLdlc&&row.refLdlc.toLowerCase()===p.refLdlc.toLowerCase()))
+        : (row._rowIdx!=null&&row._rowIdx<updatedProducts.length?row._rowIdx:-1);
+
+      if(idx>=0){
+        const u={...updatedProducts[idx]};
+        if(row.sku) u.sku=row.sku;
+        if(row.refLdlc) u.refLdlc=row.refLdlc;
+        if(row.designation) u.designation=row.designation;
+        if(row.budget!=null) u.budget=row.budget;
+        if(row.qty!=null) u.qty=Math.max(0,(parseFloat(u.qty)||0)+(row.qty||0));
+        updatedProducts[idx]=u;
+      } else if(opIsNew){
+        updatedProducts.push({ sku:row.sku||"", refLdlc:row.refLdlc||"", designation:row.designation||"", budget:row.budget!=null?row.budget:"", qty:row.qty!=null?Math.max(0,row.qty):"" });
+      } else {
+        unknowns.push(row);
+      }
+    });
+
+    setForm(f=>({...f, products:updatedProducts}));
+    if(unknowns.length>0) setUnknownQueue(unknowns);
+    setShowPaste(false);
+  };
+  const [unknownQueue, setUnknownQueue] = useState([]);
+  const handleUnknownConfirm = (row) => {
+    setForm(f=>({ ...f, products:[...f.products, { sku:row.sku||"", refLdlc:row.refLdlc||"", designation:row.designation||"", budget:row.budget!=null?row.budget:"", qty:row.qty!=null?Math.max(0,row.qty):"" }] }));
+    setUnknownQueue(q=>q.slice(1));
+  };
+  const handleUnknownSkip = () => setUnknownQueue(q=>q.slice(1));
+
+  const totalHT=computeTotal(form.products);
+  const cur=form.currency||"EUR";
+  const valid=(form.idLdlc.trim()||form.idPartner.trim())&&form.marque.trim()&&form.dateStart&&form.dateEnd&&(form.enseignes||[]).length>0&&form.products.length>0&&form.products.some(p=>(p.sku&&p.sku.trim())||(p.refLdlc&&p.refLdlc.trim()));
+
+  const isNonEur = form.currency!=="EUR";
+  const COLS=[
+    { key:"sku",         label:"Ref partenaire", w:150 },
+    { key:"refLdlc",     label:"Ref LDLC",       w:150 },
+    { key:"designation", label:"Désignation",     w:null },
+    { key:"budget",      label:"Budget HT",       w:80, type:"number" },
+    { key:"_ttc",        label:"Budget TTC",      w:80, readOnly:true },
+    ...(isNonEur?[{ key:"_hteur",  label:"Budget HT (€)",  w:90, readOnly:true },{ key:"_ttceur", label:"Budget TTC (€)", w:90, readOnly:true }]:[]),
+    { key:"qty",         label:"Ventes",          w:80, type:"number" },
+    { key:"_totalht",    label:"Total HT",        w:80, readOnly:true },
+  ];
+
+  return (
+    <>
+      <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.87)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:14 }} onClick={e=>{if(e.target===e.currentTarget)tryClose();}}>
+        <div style={{ background:"#000", border:"1px solid rgba(255,255,255,0.1)", borderRadius:18, width:"100%", maxWidth:"75vw", maxHeight:"96vh", overflowY:"auto", padding:32 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:22 }}>
+            <h2 style={{ margin:0, color:"#f1f5f9", fontSize:21, fontWeight:800 }}>{isNew?"Nouvelle opération":`Opération ${[form.marque, form.idPartner||form.idLdlc].filter(Boolean).join(" ")}`}</h2>
+            <button onClick={onClose} style={{ background:"none", border:"none", color:"#64748b", fontSize:24, cursor:"pointer" }}>✕</button>
+          </div>
+
+          {/* Ligne 1 : Marque · Fournisseur · Date début · Date fin · Devise [· Taux] */}
+          <div style={{ display:"flex", gap:12, marginBottom:12, alignItems:"flex-end", flexWrap:"wrap" }}>
+            <div style={{ flex:"0 0 160px" }}>
+              <label style={lbl}>Marque *</label>
+              <input value={form.marque} onChange={e=>set("marque",e.target.value)} style={inp} />
+            </div>
+            <div style={{ flex:"0 0 160px" }}>
+              <label style={lbl}>Fournisseur <span style={{ color:"#6b7280", textTransform:"none", letterSpacing:0, fontWeight:400 }}>(si différent)</span></label>
+              <input value={form.fournisseur} onChange={e=>set("fournisseur",e.target.value)} placeholder={form.marque||""} style={inp} />
+            </div>
+            <div style={{ flex:"0 0 160px" }}>
+              <label style={lbl}>Contact</label>
+              <input value={form.contact||""} onChange={e=>set("contact",e.target.value)} style={inp} />
+            </div>
+            <div style={{ flex:"0 0 100px" }}>
+              <label style={lbl}>Date début</label>
+              <input type="date" value={form.dateStart||""} onChange={e=>set("dateStart",e.target.value)} style={inp} />
+            </div>
+            <div style={{ flex:"0 0 100px" }}>
+              <label style={lbl}>Date fin</label>
+              <input type="date" value={form.dateEnd||""} min={form.dateStart||undefined} onChange={e=>set("dateEnd",e.target.value)} onBlur={e=>{ if(form.dateStart&&e.target.value&&e.target.value<form.dateStart) set("dateEnd",form.dateStart); }} style={inp} />
+            </div>
+            <div style={{ flex:"0 0 110px" }}>
+              <label style={lbl}>Devise</label>
+              <select value={form.currency||"EUR"} onChange={e=>set("currency",e.target.value)} style={sel}>
+                <option value="EUR">EUR €</option>
+                <option value="USD">USD $</option>
+                <option value="CHF">CHF Fr.</option>
+              </select>
+            </div>
+            {(form.currency==="USD"||form.currency==="CHF")&&(
+              <div style={{ flex:"0 0 160px" }}>
+                <label style={lbl}>Taux {form.currency} → EUR {fetchingRate&&<span style={{ color:"#64748b", fontWeight:400 }}>⟳</span>}</label>
+                <div style={{ display:"flex", gap:5, alignItems:"center" }}>
+                  <input type="number" step="0.0001" value={form.fxRate||""} onChange={e=>set("fxRate",parseFloat(e.target.value))} placeholder="0.9200" style={{ ...inp, flex:1 }} />
+                  <button onClick={()=>{ setFetchingRate(true); fetchFxToEur(form.currency).then(r=>{ set("fxRate", r||FALLBACK_RATES[form.currency]||0.92); setFetchingRate(false); }); }} style={{ background:"rgba(59,130,246,0.2)", border:"1px solid #3b82f6", color:"#93c5fd", borderRadius:7, padding:"9px 8px", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>
+                    ↻ Live
+                  </button>
+                </div>
+                {form.fxRate&&<div style={{ color:"#64748b", fontSize:10, marginTop:2 }}>1 {form.currency} = {form.fxRate.toFixed(4)} EUR</div>}
+              </div>
+            )}
+          </div>
+
+          {/* Ligne 2 : Enseignes + Acheteur */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 221px", gap:12, marginBottom:12 }}>
+            <div>
+              <label style={lbl}>Enseignes</label>
+              <div style={{ background:"#2a2a2a", border:"1px solid rgba(255,255,255,0.15)", borderRadius:8, padding:"9px 14px", display:"flex", flexWrap:"wrap", gap:"8px 20px" }}>
+                {[
+                  { value:"all",           label:"Toutes", favicon:"data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAQABADASIAAhEBAxEB/8QAFwAAAwEAAAAAAAAAAAAAAAAABQYHCP/EACQQAAICAgAFBQEAAAAAAAAAAAEDAgQFEQAGBxJBExQhIjGx/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AMx4rppzllGoVQ5dzFlj6KsiuCaLJmVVhIDgAPmGxoHzwKRyvlm3UUvZ3BZesNWoVZmRh3mMpa1+DR/n7xT8f19dWwWMxzeTMa99HC1cMbXvbC5tr12BqwRGQAPqDuJGj43rhYy3VK1lrbrmRwVJ1i2qSbc4NYv1VyYWdo7T9fsd7Hz44D//2Q==" },
+                  { value:"LDLC.com",      label:"LDLC.com",             favicon:"data:image/gif;base64,R0lGODlhEAAQAOYAAAg9hwU9hwhBiQg+iAQ8hghCigc+hwA5hP///w1DigAzgAN5swVenwxCihZKjwJ7tenu9Yqlx9nh7QNzr9jh7LvK3gVeoMrW5TxxqA1Di3qYv8Xe7AVcnQCRxh1PkgpBiQdFjACQxQhBigCXyQCbzQY9hwGHvsnU5QhEjNzk7rbG3BRIjQVlpAY+h6u+1gg8huvw9QhCiwN5tLzJ3QVbndDZ6D9zqQGTxwlAiYqkxgGOwxFGjQZUmH2ZwOXr8+Lo8QF+uAE1gQc+iAJ1sMff7MHN4AZVmQVdnwE0gQ9EiwCczQc/iAVcnm+PugVfoANwrRVJjgg+hwg/iAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAAAAAAALAAAAAAQABAAAAeJgFKCg4SFhoeIiYqKJQRSAQQtUlEDggBRUVJCSVA4Ow4DBygiAAAgBTFSSBo+Hi4wNTYmDFELIws8AAoRCCsXKjNEHTQcSkcWDLo5CD0QFUUbIUMyJCxOTFJBTRQ/EiknGEA6DxM3T0ZSSx8ZCQ0JBAcCAlIvBVLzUgYB+wEGk5STFgkcSLCgoEAAOw==" },
+                  { value:"LDLC.pro",      label:"LDLC.pro",             favicon:"data:image/gif;base64,R0lGODlhEAAQAPdAAMEAK////+B/lWkAZwBmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGwAAABj21KsBAMx27gAY9gAAARHkAAB2WAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC3AMHzQAAAAOwAAAAY9pcADgF6BCgAAHZYElQqAAAgdlgAGwDBzAAAAfM4ABAAwQAY9+3gI9+ldgB27QAAAAAAAAAAAJQAAAAY91XGi/eUduUAGHZVxgAAAP//ABgEjwCuba5tGAAYAAAAAAAAABj3bABAAAAAAAAAABj3WAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAgEBAFIAGHSaQAAAAAAAAMAAtwLR7QAAAAACAA8AAAETAAAAJPNAAAAAwQAAAAAC8N44AAEC0QAAANHtuPe0AiMAGHbt4AAC8PwqAC527HZUyQAC8PfoAPAAGAAY9wAACAAOAHQAAACtuAAAAALwAMAAAALR7Y////fwBPAAGHSaUxj36G0YAAAArgAAAAAAAAAAAAAAAAAAAOz8KsgrdvB2VAAAAhz4GCH5BAkAAP8ALAAAAAAQABAAAAhFAP/9A0CwoEEAAgUeXFhQIcOFAx9KnEhRYgCCATIKAHCRoICMGTGK7MixYMeTJUViBKmRY8iPISvKnPkwYkWHNxNOTBgQADs=" },
+                  { value:"Materiel.net",  label:"Materiel.net",         favicon:"data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAi5APcJHEgMDbGBCBGiAQCAHkM0CQUujEFv37l99GIAEDNwort9H4WBxKhx0j4AmTCi8mNxnx9UHzMZOLkP1UpU+3rVJITK1b4VNF2lcoXzIippqaTti0FTms1U+0SiymZzadNU2IrWlOZK6UwANbNO28drH1KkVsEizdryFVelTMEeTYVzmFlUWPcdoIn1aM59WZ3ug7FPjBg/frruM1czFSE/YnBIFHMjAEMcDAHEEAMxorJMoJVFDAgAOw==" },
+                  { value:"TopAchat",      label:"TopAchat",             favicon:"data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAiHAOE8sFABQgULAw8mhADHAkKHBR9AGEjQIMKDCvdpDFUhIUELBg0+0LhPk8WQHw9aIAkKyEOMIUGRZDlwIISKcGZqtGOxAkaCIzWCmlixYsGCLC16hFmB5CaFFWs6DLov1AOKKqFS3RfNiNSCHx9Emwmnp9GHZI/eXKjw6tWUDY8+dDgVIZyAADs=" },
+                  { value:"RueDuCommerce", label:"RueDuCommerce",        favicon:"data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAirAPcJ3KcsjYwDCMcoG8gQx4EADxEgDJBm2UBlCCBmRChg4oGFyiAe2PiwpMQDxA5mRJMGByUcb8Y41FjyAI5JODIdGNPyIMQAEgNoSpMmEwI0k9Cc/AlRBg6eT58G0AgRh4wGP20ixDEzgINJRdNomjR00ps0k4LiiOFgjKZMcHOmofgwAA6imWSkQZCJJ96Sdp3atSvmgFOrCAEDZsq4rmKRPylInky5so+AADs=" },
+                ].map(opt=>{
+                  const ALL_INDIVIDUAL = ["LDLC.com","LDLC.pro","Materiel.net","TopAchat","RueDuCommerce"];
+                  const cur = form.enseignes||[];
+                  const checked = opt.value === "all"
+                    ? ALL_INDIVIDUAL.every(v=>cur.includes(v)) || cur.includes("all")
+                    : cur.includes(opt.value);
+                  const toggle = () => {
+                    if (opt.value === "all") {
+                      const allChecked = ALL_INDIVIDUAL.every(v=>cur.includes(v))||cur.includes("all");
+                      set("enseignes", allChecked ? [] : ALL_INDIVIDUAL);
+                    } else {
+                      const next = checked ? cur.filter(v=>v!==opt.value) : [...cur.filter(v=>v!=="all"), opt.value];
+                      // Auto-check "all" if all individual are now checked
+                      const allNowChecked = ALL_INDIVIDUAL.every(v=>next.includes(v));
+                      set("enseignes", allNowChecked ? ALL_INDIVIDUAL : next);
+                    }
+                  };
+                  return (
+                    <label key={opt.value} style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer", fontSize:13, color:checked?"#f1f5f9":"#c4c4c4", whiteSpace:"nowrap", userSelect:"none" }}>
+                      <input type="checkbox" checked={checked} onChange={toggle} style={{ accentColor:"#3b82f6", width:14, height:14, cursor:"pointer" }} />
+                      <img src={opt.favicon} width={16} height={16} style={{ borderRadius:2, objectFit:"contain" }} onError={e=>{e.target.style.display="none"}} />
+                      {opt.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <label style={lbl}>Acheteur</label>
+              {currentUser?.role==="admin" ? (
+                <select value={form.acheteur||""} onChange={e=>set("acheteur",e.target.value)} style={sel}>
+                  <option value="">— non assigné —</option>
+                  {allUsers.map(u=><option key={u.id} value={fullName(u)||u.name}>{fullName(u)||u.name}</option>)}
+                </select>
+              ) : (
+                <select value={form.acheteur||currentUser?.name||""} onChange={()=>{}} style={{ ...sel, opacity:0.7, cursor:"not-allowed" }}>
+                  <option value={currentUser?.name||""}>{currentUser?.name||""}</option>
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* Ligne 3 : ID Partenaire · ID LDLC · Doc partenaire · Doc LDLC */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:12, marginBottom:12 }}>
+            <div><label style={lbl}>ID Partenaire</label><input value={form.idPartner} onChange={e=>set("idPartner",e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>ID LDLC</label><input value={form.idLdlc} onChange={e=>set("idLdlc",e.target.value)} style={inp} /></div>
+            <div>
+              <label style={lbl}>N° facture/avoir Partenaire</label>
+              <input value={form.docPartner||""} onChange={e=>set("docPartner",e.target.value)} placeholder="Laisser vide si non reçu" style={{ ...inp, ...(form.docPartner?.trim()?{border:"1px solid #22c55e",background:"rgba(34,197,94,0.07)"}:{}) }} />
+            </div>
+            <div><label style={lbl}>N° facture/avoir LDLC</label><input value={form.docLdlc||""} onChange={e=>set("docLdlc",e.target.value)} placeholder="Laisser vide si non reçu" style={inp} /></div>
+          </div>
+
+          {/* Liste des produits */}
+          <div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:12, padding:18, marginBottom:18 }}>
+            <div style={{ color:"#e2e8f0", fontWeight:700, fontSize:15, marginBottom:12 }}>Liste des produits</div>
+            <div style={{ overflowX:"auto", maxHeight:360, overflowY:"auto", width:"100%" }}>
+              <table style={{ borderCollapse:"collapse", tableLayout:"fixed", fontSize:13, width:"100%" }}>
+                <thead style={{ position:"sticky", top:0, background:"#000", zIndex:1 }}>
+                  <tr style={{ borderBottom:"1px solid rgba(255,255,255,0.12)" }}>
+                    {COLS.map(c=>(
+                      <th key={c.key} style={{ textAlign:"left", color:"#c4c4c4", padding:"7px 7px", fontWeight:700, fontSize:11, whiteSpace:"nowrap", width:c.w?c.w+"px":"auto", overflow:"hidden", textOverflow:"ellipsis" }}>{c.label}</th>
+                    ))}
+                    <th style={{ width:36 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {form.products.map((p,i)=>(
+                    <tr key={i} style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+                      {COLS.map(c=>(
+                        <td key={c.key} style={{ padding:"3px 3px" }}>
+                          {c.key==="_ttc"?(
+                            <div style={{ padding:"7px 8px", color:"#f1f5f9", fontSize:12, whiteSpace:"nowrap", width:"100%" }}>
+                              {p.budget?fmt((parseFloat(p.budget)||0)*TVA,cur):"—"}
+                            </div>
+                          ):c.key==="_hteur"?(
+                            <div style={{ padding:"7px 8px", color:"#9ca3af", fontSize:12, whiteSpace:"nowrap", width:"100%" }}>
+                              {parseFloat(p.budget)>0?fmt(parseFloat(p.budget)*Number(form.fxRate||FALLBACK_RATES[form.currency]||0.92),"EUR"):"—"}
+                            </div>
+                          ):c.key==="_ttceur"?(
+                            <div style={{ padding:"7px 8px", color:"#9ca3af", fontSize:12, whiteSpace:"nowrap", width:"100%" }}>
+                              {parseFloat(p.budget)>0?fmt(parseFloat(p.budget)*TVA*Number(form.fxRate||FALLBACK_RATES[form.currency]||0.92),"EUR"):"—"}
+                            </div>
+                          ):c.key==="_totalht"?(
+                            <div style={{ padding:"7px 8px", color:"#f1f5f9", fontSize:12, whiteSpace:"nowrap", fontWeight:600, width:"100%" }}>
+                              {(parseFloat(p.budget)||0)*(parseFloat(p.qty)||0)>0?fmt((parseFloat(p.budget)||0)*(parseFloat(p.qty)||0),cur):"—"}
+                            </div>
+                          ):(
+                            <input type={c.type||"text"} min={c.key==="qty"?"0":undefined}
+                              value={p[c.key]||""}
+                              onChange={e=>{ let v=e.target.value; if((c.key==="qty"||c.key==="budget")&&v!==""&&parseFloat(v)<0)v="0"; changeProd(i,c.key,v); }}
+                              onBlur={e=>checkDupRef(i,c.key,e.target.value)}
+                              placeholder={c.key==="qty"?"0":""}
+                              style={{ ...inp, fontSize:12, padding:"6px 7px", width:"100%", boxSizing:"border-box" }}
+                            />
+                          )}
+                        </td>
+                      ))}
+                      <td style={{ padding:"3px 5px", textAlign:"center" }}>
+                        <button onClick={()=>removeProd(i)} style={{ background:"rgba(239,68,68,0.12)", border:"1px solid rgba(239,68,68,0.35)", color:"#fca5a5", borderRadius:6, padding:"5px 8px", cursor:"pointer", fontSize:13 }}>✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {form.products.length===0&&(
+                    <tr><td colSpan={COLS.length+1} style={{ padding:"20px 0", textAlign:"center", color:"#475569", fontSize:13 }}>Aucun produit</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Boutons sous le tableau */}
+            <div style={{ display:"flex", gap:10, marginTop:10 }}>
+              <button onClick={addRow} style={{ ...btnG, fontSize:14, padding:"9px 20px" }}>+ Ajouter une ligne</button>
+              <button onClick={()=>setShowPaste(true)} style={{ ...btnG, fontSize:14, padding:"9px 20px" }}>📋 Coller des données</button>
+            </div>
+
+            {/* Total dynamique selon statut */}
+            {(()=>{
+              const st = statusOf(form);
+              const now = today();
+              const endDate = form.dateEnd||"";
+              const startDate = form.dateStart||"";
+              const msDay = 86400000;
+              const diffEnd = endDate ? Math.round((new Date(endDate) - new Date(now)) / msDay) : null;
+              const diffStart = startDate ? Math.round((new Date(startDate) - new Date(now)) / msDay) : null;
+
+              if (st === "en_cours" || st === "a_venir") {
+                let label = null;
+                if (st === "en_cours" && diffEnd !== null) {
+                  label = `Fin de l'opération prévue dans ${diffEnd} jour${diffEnd > 1 ? "s" : ""}`;
+                } else if (st === "a_venir" && diffStart !== null) {
+                  label = `Début de l'opération dans ${diffStart} jour${diffStart > 1 ? "s" : ""}`;
+                }
+                if (!label) return null;
+                return (
+                  <div style={{ display:"flex", justifyContent:"flex-end", marginTop:12, paddingTop:12, borderTop:"1px solid rgba(255,255,255,0.08)" }}>
+                    <div style={{ color:"#64748b", fontSize:13, fontStyle:"italic" }}>{label}</div>
+                  </div>
+                );
+              }
+
+              if (totalHT <= 0 && !(form.products||[]).some(p=>parseFloat(p.qty)>0)) return null;
+              const isDue = st === "du_declarer" || st === "du_payer";
+              const totalColor = isDue ? "#ef4444" : "#22c55e";
+              const daysPast = diffEnd !== null ? -diffEnd : null;
+
+              return (
+                <div style={{ display:"flex", justifyContent:"flex-end", alignItems:"flex-end", gap:20, marginTop:12, paddingTop:12, borderTop:"1px solid rgba(255,255,255,0.08)" }}>
+                  {isDue && daysPast !== null && daysPast > 0 && (
+                    <div style={{ color:"#ef4444", fontSize:13, fontWeight:600, alignSelf:"center" }}>
+                      Dû depuis {daysPast} jour{daysPast > 1 ? "s" : ""}
+                    </div>
+                  )}
+                  <div style={{ textAlign:"right" }}>
+                    <div style={{ color:totalColor, fontSize:21, fontWeight:800 }}>{fmt(totalHT,cur)}</div>
+                    <div style={{ color:totalColor, fontSize:13, opacity:0.65, marginTop:2 }}>{fmt(totalHT*TVA,cur)} TTC</div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          <div style={{ marginBottom:22 }}>
+            <label style={lbl}>Notes internes</label>
+            <textarea value={form.notes||""} onChange={e=>set("notes",e.target.value)} style={{ ...inp, minHeight:52, resize:"vertical" }} />
+          </div>
+
+          {!valid&&(
+            <div style={{ color:"#f59e0b", fontSize:13, marginBottom:12, background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.2)", borderRadius:8, padding:"9px 12px" }}>
+              Pour enregistrer : ID (LDLC ou Partenaire), Marque, dates de début et fin, au moins une Enseigne, et au moins un produit avec Ref partenaire ou Ref LDLC.
+            </div>
+          )}
+
+          <div style={{ display:"flex", gap:12, justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+              {(()=>{
+                const endDate=form.dateEnd||"";
+                const todayStr=today();
+                const rapportReady=!endDate||endDate<=todayStr;
+                const rapportDate=form.rapportDate||null;
+                const handleExport=()=>{
+                  if(rapportDate){ setRapportReconfirm(true); return; }
+                  exportPdf({...form}); set("rapportDate",todayStr);
+                };
+                return (
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <button
+                      onClick={rapportReady?handleExport:undefined}
+                      disabled={!rapportReady}
+                      style={{ ...btnG, background:rapportReady?"rgba(59,130,246,0.15)":"rgba(255,255,255,0.04)", border:rapportReady?"1px solid #3b82f6":"1px solid rgba(255,255,255,0.1)", color:rapportReady?"#93c5fd":"#475569", fontWeight:600, cursor:rapportReady?"pointer":"not-allowed", opacity:rapportReady?1:0.6 }}>
+                      ⏏️ Exporter le rapport
+                    </button>
+                    {!rapportReady&&endDate&&(
+                      <span style={{ color:"#6b7280", fontSize:13 }}>Disponible à partir du {displayDate(endDate)}</span>
+                    )}
+                    {rapportReady&&!rapportDate&&(
+                      <span style={{ color:"#3b82f6", fontSize:13 }}>Le rapport est prêt à être exporté</span>
+                    )}
+                    {rapportDate&&(
+                      <span style={{ color:"#22c55e", fontSize:13 }}>Rapport généré le {displayDate(rapportDate)}</span>
+                    )}
+                  </div>
+                );
+              })()}
+              {/* AlertModal for dup refs */}
+              {alertMsg&&<AlertModal message={alertMsg} onClose={()=>setAlertMsg(null)} />}
+              {/* ConfirmModal for unknown paste rows */}
+              {unknownQueue&&unknownQueue.length>0&&<ConfirmModal
+                message={`"${unknownQueue[0].sku||unknownQueue[0].refLdlc}" ne faisait pas partie de la liste initiale.
+
+Voulez-vous quand même ajouter les ventes correspondantes ?`}
+                onConfirm={()=>handleUnknownConfirm(unknownQueue[0])}
+                onCancel={handleUnknownSkip}
+              />}
+            </div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={onClose} style={btnG}>❌ Annuler</button>
+              <button onClick={()=>valid&&onSave({...form,id:form.id||genId(),totalDu:totalHT||null})}
+                style={{ ...btnP, opacity:valid?1:0.4, cursor:valid?"pointer":"not-allowed" }}>
+                {isNew?"✔️ Créer l'opération":"✔️ Enregistrer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      {showPaste&&<PasteModal onApply={handlePasteApply} onClose={()=>setShowPaste(false)} existingProducts={form.products} opCurrency={form.currency||"EUR"} />}
+      {confirmLeave&&<ConfirmModal message="Vous avez des modifications non enregistrées.
+Voulez-vous les enregistrer avant de quitter ?" confirmLabel="Enregistrer" cancelLabel="Abandonner" onConfirm={()=>{if(valid)onSave({...form,id:form.id||genId(),totalDu:totalHT||null});onClose();}} onCancel={()=>{setConfirmLeave(false);onClose();}} />}
+      {rapportReconfirm&&<ConfirmModal message={`Le rapport a déjà été généré le ${displayDate(form.rapportDate)}.
+Voulez-vous l'exporter à nouveau ?`} onConfirm={()=>{ exportPdf({...form}); set("rapportDate",today()); setRapportReconfirm(false); }} onCancel={()=>setRapportReconfirm(false)} />}
+    </>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+// ─── Alert / Confirm Modals (replaces alert/confirm blocked in iframes) ─────────
+function AlertModal({ message, onClose }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9000, padding:16 }}>
+      <div style={{ background:"#0f172a", border:"1px solid rgba(255,255,255,0.15)", borderRadius:14, padding:28, maxWidth:420, width:"100%", textAlign:"center" }}>
+        <div style={{ color:"#f1f5f9", fontSize:15, marginBottom:22, lineHeight:1.6 }}>{message}</div>
+        <button onClick={onClose} style={{ ...btnP, padding:"9px 28px" }}>OK</button>
+      </div>
+    </div>
+  );
+}
+function ConfirmModal({ message, onConfirm, onCancel, confirmLabel="Oui", cancelLabel="Non" }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9000, padding:16 }}>
+      <div style={{ background:"#0f172a", border:"1px solid rgba(255,255,255,0.15)", borderRadius:14, padding:28, maxWidth:440, width:"100%", textAlign:"center" }}>
+        <div style={{ color:"#f1f5f9", fontSize:15, marginBottom:22, lineHeight:1.6, whiteSpace:"pre-line" }}>{message}</div>
+        <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
+          <button onClick={onCancel} style={btnG}>{cancelLabel}</button>
+          <button onClick={onConfirm} style={{ ...btnP, background:"#22c55e" }}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── User Profile Modal ───────────────────────────────────────────────────────
+function UserProfileModal({ currentUser, onClose, onLogout }) {
+  const [newPwd, setNewPwd] = useState("");
+  const [newPwd2, setNewPwd2] = useState("");
+  const [email, setEmail] = useState("");
+  const [profFirstName, setProfFirstName] = useState("");
+  const [profLastName, setProfLastName] = useState("");
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{
+    db.get("budgy_users_v1").then(users=>{
+      const me = (users||[]).find(u=>u.id===currentUser.id);
+      if(me?.email) setEmail(me.email);
+      if(me?.firstName) setProfFirstName(me.firstName);
+      if(me?.lastName) setProfLastName(me.lastName);
+    });
+  },[]);
+
+  const save = async () => {
+    const users = await db.get("budgy_users_v1") || [];
+    let next = [...users];
+    const fn = fmtPrenom(profFirstName), ln = fmtNom(profLastName);
+    const newName = [fn, ln].filter(Boolean).join(" ") || currentUser.name;
+    if (newPwd) {
+      if (newPwd.length < 6) { setMsg("Mot de passe trop court (6 min)."); return; }
+      if (newPwd !== newPwd2) { setMsg("Les mots de passe ne correspondent pas."); return; }
+      const hash = await hashPassword(newPwd);
+      next = next.map(u => u.id === currentUser.id ? { ...u, hash, email, firstName:fn, lastName:ln, name:newName } : u);
+    } else {
+      next = next.map(u => u.id === currentUser.id ? { ...u, email, firstName:fn, lastName:ln, name:newName } : u);
+    }
+    await db.set("budgy_users_v1", next);
+    session.set({ ...currentUser, name:newName });
+    setMsg("Profil mis à jour !"); setNewPwd(""); setNewPwd2("");
+  };
+
+  const changePhoto = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => { db.set("budgy_photo_" + currentUser.id, e.target.result); setMsg("Photo mise à jour !"); };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.87)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:4000, padding:16 }}>
+      <div style={{ background:"#0f172a", border:"1px solid rgba(255,255,255,0.12)", borderRadius:18, width:"100%", maxWidth:420, padding:32 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:22 }}>
+          <h2 style={{ margin:0, color:"#f1f5f9", fontSize:18, fontWeight:800 }}>Mon profil</h2>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:"#64748b", fontSize:22, cursor:"pointer" }}>✕</button>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, marginBottom:22 }}>
+          <UserAvatar userId={currentUser.id} size={64} />
+          <div style={{ color:"#f1f5f9", fontWeight:700, fontSize:16 }}>{currentUser.name}</div>
+          {currentUser.role==="admin" && <span style={{ color:"#fcd34d", fontSize:11, fontWeight:700 }}>ADMIN</span>}
+          <label style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.15)", color:"#9ca3af", borderRadius:7, padding:"6px 16px", cursor:"pointer", fontSize:13 }}>
+            📷 Changer la photo
+            <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>changePhoto(e.target.files[0])} />
+          </label>
+        </div>
+        <div style={{ marginBottom:14 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+            <div><label style={lbl}>Prénom</label><input value={profFirstName} onChange={e=>setProfFirstName(e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>Nom</label><input value={profLastName} onChange={e=>setProfLastName(e.target.value)} style={inp} /></div>
+          </div>
+          <label style={lbl}>Adresse email</label>
+          <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="prenom.nom@ldlc.com" style={{ ...inp, marginBottom:12 }} />
+          <label style={lbl}>Nouveau mot de passe</label>
+          <input type="password" value={newPwd} onChange={e=>setNewPwd(e.target.value)} style={{ ...inp, marginBottom:8 }} />
+          <label style={lbl}>Confirmer</label>
+          <input type="password" value={newPwd2} onChange={e=>setNewPwd2(e.target.value)} style={inp} />
+        </div>
+        {msg && <div style={{ color:"#86efac", fontSize:13, marginBottom:12 }}>{msg}</div>}
+        <button onClick={save} style={{ ...btnP, width:"100%", marginBottom:10 }}>Enregistrer</button>
+        <button onClick={()=>{ onLogout(); onClose(); }} style={{ ...btnG, width:"100%", textAlign:"center" }}>Se déconnecter</button>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [ops, setOps] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editOp, setEditOp] = useState(undefined);
+  const [filter, setFilter] = useState("all");
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null); // { id, name, role }
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [allUsers, setAllUsers] = useState([]);
+
+  useEffect(()=>{
+    Promise.all([db.get("promo_ops_v1"), Promise.resolve(session.get()), db.get("budgy_users_v1")]).then(([o, sessionData, users])=>{
+      setOps(o||[]);
+      if (sessionData?.id) setCurrentUser(sessionData);
+      const allU=users||[];
+      setAllUsers(allU.filter(u=>u.approved));
+      setPendingCount(allU.filter(u=>!u.approved&&u.id!==ADMIN_ID).length);
+      setLoading(false);
+    }).catch(()=>setLoading(false));
+  },[]);
+
+  const isAdmin = currentUser?.role==="admin";
+  const canEdit = (op) => isAdmin || op.createdBy===currentUser?.id;
+
+  const persist=next=>{ setOps(next); db.set("promo_ops_v1",next); };
+  const toggleRapport=(opId,val)=>{
+    const d=val?new Date().toISOString().slice(0,10):null;
+    const next=ops.map(o=>o.id===opId?{...o,rapportDate:d}:o);
+    persist(next);
+  };
+  const saveOp=op=>{
+    const toSave={...op, id:op.id||genId(), createdBy:op.createdBy||currentUser?.id, acheteur:op.acheteur||currentUser?.name||""};
+    const idx=ops.findIndex(o=>o.id===toSave.id);
+    persist(idx>=0?ops.map((o,i)=>i===idx?toSave:o):[...ops,toSave]);
+    setEditOp(undefined);
+  };
+  const doDelete=()=>{ persist(ops.filter(o=>o.id!==confirmDelete)); setConfirmDelete(null); };
+  const handleLogout=()=>{ session.set(null); setCurrentUser(null); };
+
+  const allOps=ops.map(o=>({...o,status:statusOf(o)}));
+  const myOpsToDeclare = allOps.filter(o=>
+    o.status==="du_declarer" &&
+    (isAdmin || o.createdBy===currentUser?.id || o.acheteur===currentUser?.name)
+  );
+
+  const ENSEIGNE_ALIASES = {
+    "ldlc.com":      ["ldlc","ldlccom","ldlc.com"],
+    "ldlc.pro":      ["ldlcpro","ldlc.pro"],
+    "materiel.net":  ["materiel","materielnet","materiel.net","matos"],
+    "topachat":      ["topachat","topachat","ta"],
+    "rueducommerce":  ["rueducommerce","ruedu","rdc","rue du commerce","rueduc"],
+  };
+  const matchesEnseigne = (op, s) => {
+    const opEnseignes = (op.enseignes||[]).map(e=>norm(e));
+    return opEnseignes.some(e => {
+      if (e.includes(s)||s.includes(e)) return true;
+      const aliases = ENSEIGNE_ALIASES[e]||[];
+      return aliases.some(a=>a.includes(s)||s.includes(a));
+    });
+  };
+  const matchesYear = (op, s) => {
+    const yr = s.match(/^(20\d{2})$/);
+    if (!yr) return false;
+    return (op.dateStart||"").startsWith(yr[1])||(op.dateEnd||"").startsWith(yr[1]);
+  };
+  const matchSearch=o=>{
+    if (!search) return true;
+    const s=norm(search.trim());
+    if (!s) return true;
+    return (
+      norm(o.id).includes(s)||
+      norm(o.idLdlc).includes(s)||
+      norm(o.idPartner).includes(s)||
+      norm(o.fournisseur).includes(s)||
+      norm(o.marque).includes(s)||
+      norm(o.acheteur).includes(s)||
+      (o.products||[]).some(p=>norm(p.sku).includes(s)||norm(p.refLdlc).includes(s)||norm(p.designation).includes(s))||
+      matchesEnseigne(o,s)||
+      matchesYear(o,s)
+    );
+  };
+
+  const applyDateFilter = (op) => {
+    if (dateFilter==="all") return true;
+    const end = op.dateEnd;
+    if (!end) return dateFilter==="all";
+    const endMs = new Date(end).getTime();
+    const nowMs = Date.now();
+    const todayY = new Date().getFullYear();
+    if (dateFilter==="year") return new Date(end).getFullYear()===todayY;
+    if (dateFilter==="90") return (nowMs-endMs) <= 90*86400000 || endMs>=nowMs;
+    if (dateFilter==="60") return (nowMs-endMs) <= 60*86400000 || endMs>=nowMs;
+    if (dateFilter==="30") return (nowMs-endMs) <= 30*86400000 || endMs>=nowMs;
+    return true;
+  };
+  const filtered=allOps.filter(o=>(filter==="all"||o.status===filter)&&matchSearch(o)&&applyDateFilter(o));
+  const searchOnly=allOps.filter(matchSearch);
+
+  const kpiAmt=statuses=>searchOnly.filter(o=>statuses.includes(o.status)).reduce((sum,o)=>{
+    const t=computeTotal(o.products||[]);
+    return sum+toEur(t,o.currency||"EUR",o.fxRate||0.92);
+  },0);
+  const kpiCnt=statuses=>searchOnly.filter(o=>statuses.includes(o.status)).length;
+
+  // Aggregate EUR for display (best-effort)
+  const fmtKpi=n=>new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
+
+  const handleSort=(col)=>{
+    if(sortCol===col) setSortDir(d=>d==="asc"?"desc":"asc");
+    else { setSortCol(col); setSortDir("asc"); }
+  };
+  const sortedFiltered=[...filtered].sort((a,b)=>{
+    if(!sortCol) return 0;
+    const getV=(o)=>({
+      marque:o.marque||"",fournisseur:o.fournisseur||o.marque||"",acheteur:o.acheteur||"",
+      idPartner:o.idPartner||"",idLdlc:o.idLdlc||"",
+      periode:o.dateEnd||"",montant:computeTotal(o.products||[]),
+      docPartner:o.docPartner||"",declare:o.rapportDate||"",
+    }[sortCol]||"");
+    const va=getV(a),vb=getV(b);
+    const cmp=typeof va==="number"?va-vb:String(va).localeCompare(String(vb),"fr");
+    return sortDir==="asc"?cmp:-cmp;
+  });
+
+  if (loading) return <div style={{ minHeight:"100vh", background:"#000", display:"flex", alignItems:"center", justifyContent:"center", color:"#475569", fontSize:16 }}>Chargement…</div>;
+  if (!currentUser) return <AuthModal onLogin={u=>setCurrentUser(u)} />;
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#000", fontFamily:"'Segoe UI', system-ui, sans-serif", color:"#e2e8f0" }}>
+      <div style={{ borderBottom:"1px solid rgba(255,255,255,0.07)", padding:"14px 24px", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+          <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCADXAVIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD8qqKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAoooo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j4jeObWay0qS38KWUoKsdOBM5Hp5p5X6qAfegD6//ad/au0X4I6LPp2mXEGpeMrhCsFkp3rbZH+smx0A7L1P05r8t9Z1e81/VrvUtQuZLy+u5WmnnlOWkdjkk1Xu7ua+nee4leeeQ7nllYszE9SSeSaiFAH2x8Nnx8PvD/8A15x/yrfeQZrwfwp+0PoegeGdM02bT9QkltYFiZowm0kDtlq0m/ab0Bv+YZqX/fMf/wAXQB6+71XkevJG/aW0Bv8AmG6l/wB8x/8AxdRN+0loR/5huo/98x//ABdAHrLvUEj15S37Ruhn/mHah/3zH/8AFVGf2iNDJ/5B2of98p/8VQByvxC8UXnhH4tXGoWb/MscYeNj8si45U1674P8a6b4z09LizlCzAfvbZyN8Z9/Ue9fOHxC8TW/i7xNNqVrHLFE6KoWYDdkDHYmsXTtTutJuo7mzuJLa4Q5WSJiCKAPsiivCPD/AO0DfWqpHq9kl6o4MsJ2P9SOh/Su2svjn4Wu1BlmuLNiOVmhJx/3zmgD0GiuJk+M3hGIEjUi/skEhP8A6DWTf/H/AMPWykW9ve3b9sIEX8yf6UAcZ+0L/wAjTY/9ev8A7Ma8srqfiF43/wCE61eO8+y/ZFjj8tU37iRknJOB61y1ABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAGaKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA//Z" alt="Groupe LDLC" style={{ height:90, width:"auto", borderRadius:4 }} />
+          <div>
+            <div style={{ fontSize:40, fontWeight:900, color:"#f1f5f9", letterSpacing:"-1px" }}>BUDGY</div>
+            <div style={{ color:"#9ca3af", fontSize:18 }}>Suivi des budgets promotionnels</div>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+          <button onClick={()=>setShowProfile(true)} style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.14)", color:"#e2e8f0", borderRadius:9, padding:"6px 13px", fontSize:13, display:"flex", alignItems:"center", gap:9, cursor:"pointer" }}>
+            <UserAvatar userId={currentUser?.id} size={28} />
+            <span style={{ fontWeight:600 }}>{currentUser?.name||""}</span>
+            {isAdmin&&<span style={{ color:"#fcd34d", fontSize:10, fontWeight:700, marginLeft:4 }}>ADMIN</span>}
+          </button>
+          {isAdmin&&<button onClick={()=>setShowAdmin(true)} style={{ background:"rgba(252,211,77,0.15)", border:"1px solid rgba(252,211,77,0.35)", color:"#fcd34d", borderRadius:9, padding:"8px 13px", cursor:"pointer", fontSize:13, position:"relative" }}>⚙️{pendingCount>0&&<span style={{ position:"absolute", top:-6, right:-6, background:"#ef4444", color:"#fff", borderRadius:"50%", width:18, height:18, fontSize:11, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center" }}>{pendingCount}</span>}</button>}
+        </div>
+      </div>
+
+      <div style={{ padding:"20px 24px" }}>
+        {/* Notification "à déclarer" */}
+        {myOpsToDeclare.length>0&&(
+          <div style={{ background:"rgba(249,115,22,0.12)", border:"1px solid rgba(249,115,22,0.4)", borderRadius:12, padding:"14px 20px", marginBottom:18, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <span style={{ fontSize:22 }}>⚠️</span>
+              <div>
+                <div style={{ color:"#fdba74", fontWeight:700, fontSize:14 }}>
+                  {myOpsToDeclare.length === 1 ? "1 opération à déclarer" : `${myOpsToDeclare.length} opérations à déclarer`}
+                </div>
+                <div style={{ color:"#9ca3af", fontSize:12, marginTop:2 }}>
+                  {myOpsToDeclare.map(o=>[o.marque,o.fournisseur&&o.fournisseur!==o.marque?o.fournisseur:null,o.idPartner||o.idLdlc].filter(Boolean).join(" / ")).join(" · ")}
+                </div>
+              </div>
+            </div>
+
+          </div>
+        )}
+        {/* KPIs — ordre Traité · Dû · En cours · À venir */}
+        <div style={{ display:"flex", gap:10, marginBottom:18, flexWrap:"wrap" }}>
+          <KpiCard label="Traité"          accentColor="#22c55e" textColor="#86efac" amount={fmtKpi(kpiAmt(["doc_recu"]))}    count={kpiCnt(["doc_recu"])} />
+          <KpiCard label="Déclaré"    accentColor="#ef4444" textColor="#fca5a5" amount={fmtKpi(kpiAmt(["du_payer"]))}    count={kpiCnt(["du_payer"])} />
+          <KpiCard label="À déclarer" accentColor="#f97316" textColor="#fdba74" amount={null} count={kpiCnt(["du_declarer"])} />
+          <KpiCard label="En cours"         accentColor="#eab308" textColor="#fde047" amount={null} count={kpiCnt(["en_cours"])} />
+          <KpiCard label="À venir"          accentColor="#3b82f6" textColor="#93c5fd" amount={null} count={kpiCnt(["a_venir"])} />
+        </div>
+
+        {/* Ligne 1 : filtre statut */}
+        <div style={{ display:"flex", gap:7, marginBottom:8, flexWrap:"wrap" }}>
+          {[["all","Toutes"],["doc_recu","Traité"],["du_payer","Déclaré"],["du_declarer","À déclarer"],["en_cours","En cours"],["a_venir","À venir"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setFilter(v)} style={{ background:filter===v?"#555":"rgba(255,255,255,0.05)", border:filter===v?"none":"1px solid rgba(255,255,255,0.1)", color:filter===v?"#fff":"#9ca3af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:filter===v?700:400 }}>{l}</button>
+          ))}
+        </div>
+        {/* Ligne 2 : filtre date */}
+        <div style={{ display:"flex", gap:7, marginBottom:12, flexWrap:"wrap" }}>
+          {[["all","Toutes dates"],["year","Année en cours"],["90","90 derniers jours"],["60","60 derniers jours"],["30","30 derniers jours"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setDateFilter(v)} style={{ background:dateFilter===v?"#444":"rgba(255,255,255,0.03)", border:dateFilter===v?"1px solid rgba(255,255,255,0.3)":"1px solid rgba(255,255,255,0.07)", color:dateFilter===v?"#fff":"#9ca3af", borderRadius:8, padding:"5px 12px", cursor:"pointer", fontSize:13, fontWeight:dateFilter===v?600:400 }}>{l}</button>
+          ))}
+        </div>
+        {/* Recherche + Nouvelle opération */}
+        <div style={{ display:"flex", gap:10, marginBottom:16, alignItems:"center" }}>
+          <input placeholder="🔎  Filtrer : par marque, fournisseur, acheteur, ID, référence produit, enseigne, année…" value={search} onChange={e=>setSearch(e.target.value)} style={{ ...inp, flex:1, background:"#111", border:"1px solid rgba(255,255,255,0.08)", color:"#e2e8f0" }} />
+          <button onClick={()=>setEditOp(null)} style={{ ...btnP, padding:"9px 20px", whiteSpace:"nowrap", flexShrink:0 }}>+ Nouvelle opération</button>
+        </div>
+
+        {/* Tableau */}
+        <div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:14, overflow:"auto" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:14, minWidth:860 }}>
+            <thead>
+              <tr style={{ borderBottom:"1px solid rgba(255,255,255,0.09)", background:"rgba(255,255,255,0.03)" }}>
+                {[["Marque","marque"],["Fournisseur","fournisseur"],["Enseignes",null],["Acheteur","acheteur"],["ID Partenaire","idPartner"],["ID LDLC","idLdlc"],["Période","periode"],["Montant","montant"],["Déclaré","declare"],["Doc Partenaire","docPartner"],["",null]].map(([h,col])=>(
+                  <th key={h} onClick={col?()=>handleSort(col):undefined} style={{ textAlign:"left", color:sortCol===col?"#f1f5f9":"#9ca3af", padding:"11px 13px", fontWeight:700, fontSize:11, textTransform:"uppercase", letterSpacing:0.6, whiteSpace:"nowrap", cursor:col?"pointer":"default", userSelect:"none" }}>
+                    {h}{col&&sortCol===col?(sortDir==="asc"?" ↑":" ↓"):""}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length===0&&(
+                <tr><td colSpan={9} style={{ padding:48, textAlign:"center", color:"#334155", fontSize:14 }}>
+                  {ops.length===0?'Aucune opération — cliquez sur "+ Nouvelle opération" pour commencer':"Aucun résultat"}
+                </td></tr>
+              )}
+              {sortedFiltered.map(op=>{
+                const totalHT=computeTotal(op.products||[]);
+                const totalTTC=totalHT*TVA;
+                const cur=op.currency||"EUR";
+                const color=STATUS_COLOR[op.status];
+                const fournisseur=op.fournisseur&&op.fournisseur!==op.marque?op.fournisseur:(op.fournisseur||op.marque||"—");
+                const periodStr=(op.dateStart&&op.dateEnd)?`${displayDate(op.dateStart)} → ${displayDate(op.dateEnd)}`:"—";
+                return (
+                  <tr key={op.id}
+                    onClick={e=>{ if(e.target.type==="checkbox"||e.target.closest("button")) return; setEditOp(op); }}
+                    style={{ borderBottom:"1px solid rgba(255,255,255,0.06)", background:`${color}30`, cursor:"pointer" }}
+                    onMouseEnter={e=>e.currentTarget.style.background=`${color}50`}
+                    onMouseLeave={e=>e.currentTarget.style.background=`${color}30`}>
+                    <td style={{ padding:"12px 13px", color:"#f1f5f9", fontWeight:700, fontSize:14 }}>{op.marque||"—"}</td>
+                    <td style={{ padding:"12px 13px", color:"#e2e8f0", fontSize:14 }}>{fournisseur}</td>
+                    <td style={{ padding:"12px 13px" }}>
+                      <div style={{ display:"flex", gap:4, flexWrap:"wrap", alignItems:"center" }}>
+                        {(op.enseignes||[]).map(e=>FAVICON_MAP[e]?(
+                          <img key={e} src={FAVICON_MAP[e]} title={e} style={{ width:16, height:16, objectFit:"contain", borderRadius:2 }} onError={ev=>ev.target.style.display="none"} />
+                        ):null)}
+                      </div>
+                    </td>
+                    <td style={{ padding:"12px 13px", color:"#e2e8f0", fontSize:13 }}>{op.acheteur||""}</td>
+                    <td style={{ padding:"12px 13px", color:"#d1d5db", fontFamily:"monospace", fontSize:12 }}>{op.idPartner||"—"}</td>
+                    <td style={{ padding:"12px 13px", color:"#d1d5db", fontFamily:"monospace", fontSize:12 }}>{op.idLdlc||"—"}</td>
+                    <td style={{ padding:"12px 13px", color:"#d1d5db", fontSize:13, whiteSpace:"nowrap" }}>{periodStr}</td>
+                    <td style={{ padding:"12px 13px", whiteSpace:"nowrap" }}>
+                      {totalHT>0
+                        ? <div style={{ color:color, fontWeight:800, fontSize:15 }}>{fmt(totalHT,cur)}</div>
+                        : (op.products||[]).some(p=>parseFloat(p.qty)>0)
+                          ? <span style={{ color:color, fontSize:13 }}>Ventes sans budget</span>
+                          : <span style={{ color:"#334155" }}>—</span>}
+                    </td>
+                    <td style={{ padding:"10px 13px", textAlign:"center" }}>
+                      {op.rapportDate
+                        ? <span title={`Déclaré le ${displayDate(op.rapportDate)}`} style={{ color:"#22c55e", fontSize:18 }}>✓</span>
+                        : <span style={{ color:"#475569", fontSize:13 }}>—</span>}
+                    </td>
+                    <td style={{ padding:"12px 13px", color:"#d1d5db", fontSize:12, fontFamily:"monospace" }}>{op.docPartner||"—"}</td>
+                    <td style={{ padding:"8px 10px", textAlign:"center" }}>
+                      {canEdit(op)&&<button onClick={e=>{e.stopPropagation();setConfirmDelete(op.id);}} style={{ background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.35)", color:"#fca5a5", borderRadius:7, padding:"6px 9px", cursor:"pointer", fontSize:14 }}>🗑</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {editOp!==undefined&&<EditionModal op={editOp} onSave={saveOp} onClose={()=>setEditOp(undefined)} currentUser={currentUser} allUsers={allUsers} />}
+      {confirmDelete&&<ConfirmDialog message="Supprimer définitivement cette opération ?" onConfirm={doDelete} onCancel={()=>setConfirmDelete(null)} />}
+      {showAdmin&&isAdmin&&<AdminPanel currentUser={currentUser} onClose={()=>{ setShowAdmin(false); db.get("budgy_users_v1").then(u=>{ const all=u||[]; setAllUsers(all.filter(u=>u.approved)); setPendingCount(all.filter(u=>!u.approved&&u.id!==ADMIN_ID).length); }); }} />}
+      {showProfile&&<UserProfileModal currentUser={currentUser} onClose={()=>setShowProfile(false)} onLogout={handleLogout} />}
+    </div>
+  );
+}
+
+
+    createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
