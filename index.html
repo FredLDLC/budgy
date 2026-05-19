@@ -1621,36 +1621,44 @@ function App() {
     <>
     <style>{darkMode ? `` : `
       body { background: #f0f4f8 !important; }
-      body > div > div { background: #f0f4f8 !important; }
-      /* Text colors */
-      * { --c1: #1e293b; --c2: #334155; --c3: #475569; --c4: #64748b; }
-      /* Invert dark backgrounds to light */
-      [style*="background:\"#000\""], [style*="background: rgb(0, 0, 0)"] { background: #f0f4f8 !important; }
-      [style*="background:\"#0f172a\""] { background: #e2e8f0 !important; }
-      [style*="background:\"#2a2a2a\""] { background: #fff !important; }
-      [style*="background:\"#111\""] { background: #e8edf2 !important; }
-      /* Text: white/light → dark */
-      [style*="color:\"#f1f5f9\""] { color: #0f172a !important; }
-      [style*="color:\"#e2e8f0\""] { color: #1e293b !important; }
-      [style*="color:\"#d1d5db\""] { color: #334155 !important; }
-      [style*="color:\"#c4c4c4\""] { color: #475569 !important; }
-      [style*="color:\"#9ca3af\""] { color: #64748b !important; }
-      [style*="color:\"#94a3b8\""] { color: #475569 !important; }
-      [style*="color:\"#64748b\""] { color: #64748b !important; }
-      [style*="color:\"#475569\""] { color: #64748b !important; }
-      /* Borders: white-ish → grey */
-      [style*="rgba(255,255,255,0.07)"] { border-color: rgba(0,0,0,0.08) !important; }
-      [style*="rgba(255,255,255,0.1)"] { border-color: rgba(0,0,0,0.12) !important; }
-      [style*="rgba(255,255,255,0.12)"] { border-color: rgba(0,0,0,0.15) !important; }
-      [style*="rgba(255,255,255,0.15)"] { border-color: rgba(0,0,0,0.18) !important; }
-      /* Inputs */
+
+      /* ── Texte : blanc/gris pâle → noir (RGB = valeur réelle dans le DOM React) ── */
+      [style*="color: rgb(241, 245, 249)"],[style*="color:#f1f5f9"],[style*="color: #f1f5f9"] { color: #0f172a !important; }
+      [style*="color: rgb(226, 232, 240)"],[style*="color:#e2e8f0"],[style*="color: #e2e8f0"] { color: #1e293b !important; }
+      [style*="color: rgb(209, 213, 219)"],[style*="color:#d1d5db"],[style*="color: #d1d5db"] { color: #374151 !important; }
+      [style*="color: rgb(196, 196, 196)"],[style*="color:#c4c4c4"],[style*="color: #c4c4c4"] { color: #475569 !important; }
+      [style*="color: rgb(156, 163, 175)"],[style*="color:#9ca3af"],[style*="color: #9ca3af"] { color: #4b5563 !important; }
+      [style*="color: rgb(148, 163, 184)"],[style*="color:#94a3b8"],[style*="color: #94a3b8"] { color: #475569 !important; }
+      [style*="color: rgb(100, 116, 139)"],[style*="color:#64748b"],[style*="color: #64748b"] { color: #334155 !important; }
+      [style*="color: rgb(71, 85, 105)"],[style*="color:#475569"],[style*="color: #475569"]   { color: #334155 !important; }
+      [style*="color: rgb(51, 65, 85)"],[style*="color:#334155"],[style*="color: #334155"]     { color: #1e293b !important; }
+
+      /* ── Fonds : sombre → clair ─────────────────────────────────────────────── */
+      [style*="background: rgb(0, 0, 0)"],[style*="background: black"],[style*="background:#000"],[style*="background: #000"] { background: #f0f4f8 !important; }
+      [style*="background: rgb(15, 23, 42)"],[style*="background:#0f172a"],[style*="background: #0f172a"]   { background: #e2e8f0 !important; }
+      [style*="background: rgb(17, 17, 17)"],[style*="background:#111"],[style*="background: #111"]         { background: #e8edf2 !important; }
+      [style*="background: rgb(42, 42, 42)"],[style*="background:#2a2a2a"],[style*="background: #2a2a2a"]   { background: #fff !important; }
+      [style*="background: rgb(58, 58, 58)"],[style*="background:#3a3a3a"],[style*="background: #3a3a3a"]   { background: #f1f5f9 !important; }
+
+      /* ── Bordures blanches → grises ─────────────────────────────────────────── */
+      [style*="rgba(255, 255, 255, 0.04)"],[style*="rgba(255,255,255,0.04)"] { border-color: rgba(0,0,0,0.06) !important; background: rgba(0,0,0,0.02) !important; }
+      [style*="rgba(255, 255, 255, 0.06)"],[style*="rgba(255,255,255,0.06)"] { background: rgba(0,0,0,0.04) !important; }
+      [style*="rgba(255, 255, 255, 0.07)"],[style*="rgba(255,255,255,0.07)"] { border-color: rgba(0,0,0,0.08) !important; }
+      [style*="rgba(255, 255, 255, 0.08)"],[style*="rgba(255,255,255,0.08)"] { border-color: rgba(0,0,0,0.09) !important; }
+      [style*="rgba(255, 255, 255, 0.1)"],[style*="rgba(255,255,255,0.1)"]   { border-color: rgba(0,0,0,0.12) !important; }
+      [style*="rgba(255, 255, 255, 0.12)"],[style*="rgba(255,255,255,0.12)"] { border-color: rgba(0,0,0,0.15) !important; }
+      [style*="rgba(255, 255, 255, 0.14)"],[style*="rgba(255,255,255,0.14)"] { border-color: rgba(0,0,0,0.16) !important; }
+      [style*="rgba(255, 255, 255, 0.15)"],[style*="rgba(255,255,255,0.15)"] { border-color: rgba(0,0,0,0.18) !important; }
+      [style*="rgba(255, 255, 255, 0.2)"],[style*="rgba(255,255,255,0.2)"]   { border-color: rgba(0,0,0,0.20) !important; }
+      [style*="rgba(255, 255, 255, 0.35)"],[style*="rgba(255,255,255,0.35)"] { border-color: rgba(0,0,0,0.28) !important; }
+
+      /* ── Inputs / selects / textareas ───────────────────────────────────────── */
       input, select, textarea { background: #fff !important; color: #1e293b !important; border-color: rgba(0,0,0,0.2) !important; }
-      /* Table rows */
+
+      /* ── Tableau ────────────────────────────────────────────────────────────── */
       table { background: #fff !important; }
       thead tr { background: rgba(0,0,0,0.03) !important; }
       tbody tr:hover { filter: brightness(0.95); }
-      /* Header bar */
-      [style*="borderBottom:\"1px solid rgba(255,255,255,0.07)\""] { border-color: rgba(0,0,0,0.08) !important; }
     `}</style>
     <div style={{ minHeight:"100vh", background:darkMode?"#000":"#f0f4f8", fontFamily:"'Segoe UI', system-ui, sans-serif", color:darkMode?"#e2e8f0":"#1e293b" }}>
       <div style={{ borderBottom:"1px solid rgba(255,255,255,0.07)", padding:"14px 24px", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
