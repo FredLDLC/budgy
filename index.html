@@ -1500,6 +1500,120 @@ function App() {
     return sortDir==="asc"?cmp:-cmp;
   });
 
+  const handleExportResultsPdf = () => {
+    const logoEl = document.querySelector('img[alt="Groupe LDLC"]');
+    const LOGO = logoEl ? logoEl.src : '';
+    const filterLabels = { all:"Tous les statuts", doc_recu:"Traité", du_payer:"Déclaré", du_declarer:"À déclarer", en_cours:"En cours", a_venir:"À venir" };
+    const dateFilterLabels = { all:"Toutes les périodes", year:"Année en cours", "90":"90 derniers jours", "60":"60 derniers jours", "30":"30 derniers jours" };
+    const exportDate = new Date().toLocaleDateString("fr-FR", { day:"2-digit", month:"long", year:"numeric" });
+    const exportTime = new Date().toLocaleTimeString("fr-FR", { hour:"2-digit", minute:"2-digit" });
+    const STATUS_COLORS_PDF = { doc_recu:"#15803d", du_payer:"#b91c1c", du_declarer:"#c2410c", en_cours:"#854d0e", a_venir:"#1d4ed8" };
+    const STATUS_BG_PDF = { doc_recu:"#dcfce7", du_payer:"#fee2e2", du_declarer:"#ffedd5", en_cours:"#fef9c3", a_venir:"#dbeafe" };
+    const kpis = [
+      { label:"Traité",      count:kpiCnt(["doc_recu"]),    amount:fmtKpi(kpiAmt(["doc_recu"])),  color:"#15803d", bg:"#dcfce7" },
+      { label:"Déclaré",     count:kpiCnt(["du_payer"]),    amount:fmtKpi(kpiAmt(["du_payer"])),  color:"#b91c1c", bg:"#fee2e2" },
+      { label:"À déclarer",  count:kpiCnt(["du_declarer"]), amount:null,                           color:"#c2410c", bg:"#ffedd5" },
+      { label:"En cours",    count:kpiCnt(["en_cours"]),    amount:null,                           color:"#854d0e", bg:"#fef9c3" },
+      { label:"À venir",     count:kpiCnt(["a_venir"]),     amount:null,                           color:"#1d4ed8", bg:"#dbeafe" },
+    ];
+    const kpiHtml = kpis.map(k => {
+      const cs = k.count === 0 ? "Aucune opération" : k.count === 1 ? "1 opération" : k.count + " opérations";
+      return '<div class="kpi" style="border-top-color:' + k.color + ';background:' + k.bg + '">'
+        + '<div class="kpi-label">' + k.label + '</div>'
+        + '<div class="kpi-value" style="color:' + k.color + '">' + cs + (k.amount ? ' <span class="kpi-amt">(' + k.amount + ')</span>' : '') + '</div>'
+        + '</div>';
+    }).join("");
+    const FAVICONS_PDF = {
+      "LDLC.com":"data:image/gif;base64,R0lGODlhEAAQAOYAAAg9hwU9hwhBiQg+iAQ8hghCigc+hwA5hP///w1DigAzgAN5swVenwxCihZKjwJ7tenu9Yqlx9nh7QNzr9jh7LvK3gVeoMrW5TxxqA1Di3qYv8Xe7AVcnQCRxh1PkgpBiQdFjACQxQhBigCXyQCbzQY9hwGHvsnU5QhEjNzk7rbG3BRIjQVlpAY+h6u+1gg8huvw9QhCiwN5tLzJ3QVbndDZ6D9zqQGTxwlAiYqkxgGOwxFGjQZUmH2ZwOXr8+Lo8QF+uAE1gQc+iAJ1sMff7MHN4AZVmQVdnwE0gQ9EiwCczQc/iAVcnm+PugVfoANwrRVJjgg+hwg/iAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAAAAAAALAAAAAAQABAAAAeJgFKCg4SFhoeIiYqKJQRSAQQtUlEDggBRUVJCSVA4Ow4DBygiAAAgBTFSSBo+Hi4wNTYmDFELIws8AAoRCCsXKjNEHTQcSkcWDLo5CD0QFUUbIUMyJCxOTFJBTRQ/EiknGEA6DxM3T0ZSSx8ZCQ0JBAcCAlIvBVLzUgYB+wEGk5STFgkcSLCgoEAAOw==",
+      "LDLC.pro":"data:image/gif;base64,R0lGODlhEAAQAPdAAMEAK////+B/lWkAZwBmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGwAAABj21KsBAMx27gAY9gAAARHkAAB2WAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC3AMHzQAAAAOwAAAAY9pcADgF6BCgAAHZYElQqAAAgdlgAGwDBzAAAAfM4ABAAwQAY9+3gI9+ldgB27QAAAAAAAAAAAJQAAAAY91XGi/eUduUAGHZVxgAAAP//ABgEjwCuba5tGAAYAAAAAAAAABj3bABAAAAAAAAAABj3WAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAgEBAFIAGHSaQAAAAAAAAMAAtwLR7QAAAAACAA8AAAETAAAAJPNAAAAAwQAAAAAC8N44AAEC0QAAANHtuPe0AiMAGHbt4AAC8PwqAC527HZUyQAC8PfoAPAAGAAY9wAACAAOAHQAAACtuAAAAALwAMAAAALR7Y////fwBPAAGHSaUxj36G0YAAAArgAAAAAAAAAAAAAAAAAAAOz8KsgrdvB2VAAAAhz4GCH5BAkAAP8ALAAAAAAQABAAAAhFAP/9A0CwoEEAAgUeXFhQIcOFAx9KnEhRYgCCATIKAHCRoICMGTGK7MixYMeTJUViBKmRY8iPISvKnPkwYkWHNxNOTBgQADs=",
+      "Materiel.net":"data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAi5APcJHEgMDbGBCBGiAQCAHkM0CQUujEFv37l99GIAEDNwort9H4WBxKhx0j4AmTCi8mNxnx9UHzMZOLkP1UpU+3rVJITK1b4VNF2lcoXzIippqaTti0FTms1U+0SiymZzadNU2IrWlOZK6UwANbNO28drH1KkVsEizdryFVelTMEeTYVzmFlUWPcdoIn1aM59WZ3ug7FPjBg/frruM1czFSE/YnBIFHMjAEMcDAHEEAMxorJMoJVFDAgAOw==",
+      "TopAchat":"data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAiHAOE8sFABQgULAw8mhADHAkKHBR9AGEjQIMKDCvdpDFUhIUELBg0+0LhPk8WQHw9aIAkKyEOMIUGRZDlwIISKcGZqtGOxAkaCIzWCmlixYsGCLC16hFmB5CaFFWs6DLov1AOKKqFS3RfNiNSCHx9Emwmnp9GHZI/eXKjw6tWUDY8+dDgVIZyAADs=",
+      "RueDuCommerce":"data:image/gif;base64,R0lGODlhEAAQAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAAAQABAAAAirAPcJ3KcsjYwDCMcoG8gQx4EADxEgDJBm2UBlCCBmRChg4oGFyiAe2PiwpMQDxA5mRJMGByUcb8Y41FjyAI5JODIdGNPyIMQAEgNoSpMmEwI0k9Cc/AlRBg6eT58G0AgRh4wGP20ixDEzgINJRdNomjR00ps0k4LiiOFgjKZMcHOmofgwAA6imWSkQZCJJ96Sdp3atSvmgFOrCAEDZsq4rmKRPylInky5so+AADs="
+    };
+    const rowsHtml = sortedFiltered.map(op => {
+      const totalHT = computeTotal(op.products||[]);
+      const cur = op.currency||"EUR";
+      const fournisseur = op.fournisseur && op.fournisseur !== op.marque ? op.fournisseur : (op.fournisseur||op.marque||"—");
+      const periodStr = (op.dateStart && op.dateEnd) ? displayDate(op.dateStart) + " → " + displayDate(op.dateEnd) : "—";
+      const color = STATUS_COLORS_PDF[op.status]||"#475569";
+      const bg = STATUS_BG_PDF[op.status]||"#f1f5f9";
+      const ensImgs = (op.enseignes||[]).map(e => FAVICONS_PDF[e]
+        ? '<img src="' + FAVICONS_PDF[e] + '" style="width:11px;height:11px;object-fit:contain;border-radius:2px;vertical-align:middle;margin-right:2px">'
+        : '<span style="font-size:9px">' + e + '</span>').join("");
+      const montant = totalHT > 0 ? fmt(totalHT, cur) : "—";
+      return '<tr>'
+        + '<td style="font-weight:700">' + (op.marque||"—") + '</td>'
+        + '<td>' + fournisseur + '</td>'
+        + '<td>' + ensImgs + '</td>'
+        + '<td>' + (op.acheteur||"") + '</td>'
+        + '<td style="font-family:monospace;font-size:9px">' + (op.idPartner||"—") + '</td>'
+        + '<td style="font-family:monospace;font-size:9px">' + (op.docPartner||"—") + '</td>'
+        + '<td style="white-space:nowrap">' + periodStr + '</td>'
+        + '<td style="text-align:right;font-weight:800">' + montant + '</td>'
+        + '<td><span class="badge" style="color:' + color + ';background:' + bg + ';border:1px solid ' + color + '55">' + (STATUS_LABELS[op.status]||op.status) + '</span></td>'
+        + '</tr>';
+    }).join("");
+    const filtersInfo = [
+      "Statut : " + (filterLabels[filter]||filter),
+      "Période : " + (dateFilterLabels[dateFilter]||dateFilter),
+      search ? 'Recherche : "' + search + '"' : null,
+      sortedFiltered.length + " opération" + (sortedFiltered.length !== 1 ? "s" : ""),
+    ].filter(Boolean).join("  •  ");
+    const html = '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">'
+      + '<title>BUDGY — Export ' + exportDate + '</title>'
+      + '<style>'
+      + '@page { size: A4 landscape; margin: 12mm 14mm; }'
+      + '* { box-sizing: border-box; }'
+      + 'body { font-family: "Segoe UI", Arial, sans-serif; font-size: 11px; color: #1e293b; margin: 0; }'
+      + '.header { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; }'
+      + '.header img { height: 48px; width: auto; }'
+      + '.header-right { flex: 1; }'
+      + '.header-meta { display: flex; justify-content: space-between; align-items: flex-start; }'
+      + '.header-title { font-size: 20px; font-weight: 900; color: #0f172a; letter-spacing: -0.5px; }'
+      + '.header-sub { font-size: 10px; color: #64748b; margin-top: 1px; }'
+      + '.header-filters { font-size: 10px; color: #475569; margin-top: 4px; }'
+      + '.header-date { font-size: 10px; color: #94a3b8; text-align: right; }'
+      + 'hr { border: none; border-top: 1px solid #e2e8f0; margin: 8px 0; }'
+      + '.kpis { display: flex; gap: 6px; margin-bottom: 10px; }'
+      + '.kpi { flex: 1; border-radius: 6px; padding: 8px 10px; border-top: 2px solid; }'
+      + '.kpi-label { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #64748b; margin-bottom: 3px; }'
+      + '.kpi-value { font-size: 11px; font-weight: 800; }'
+      + '.kpi-amt { font-size: 10px; }'
+      + 'table { width: 100%; border-collapse: collapse; }'
+      + 'th { background: #f1f5f9; text-align: left; padding: 6px 8px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }'
+      + 'td { padding: 6px 8px; font-size: 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }'
+      + 'tr:nth-child(even) td { background: #f8fafc; }'
+      + '.badge { border-radius: 4px; padding: 2px 6px; font-size: 9px; font-weight: 600; display: inline-block; white-space: nowrap; }'
+      + '.footer { margin-top: 10px; font-size: 9px; color: #94a3b8; display: flex; justify-content: space-between; }'
+      + '@media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }'
+      + '</style></head><body>'
+      + '<div class="header">'
+      + '<img src="' + LOGO + '" alt="Groupe LDLC">'
+      + '<div class="header-right"><div class="header-meta">'
+      + '<div><div class="header-title">BUDGY — Export des résultats</div>'
+      + '<div class="header-sub">Suivi des budgets promotionnels</div>'
+      + '<div class="header-filters">' + filtersInfo + '</div></div>'
+      + '<div class="header-date">Exporté le ' + exportDate + ' à ' + exportTime + '</div>'
+      + '</div></div></div>'
+      + '<hr>'
+      + '<div class="kpis">' + kpiHtml + '</div>'
+      + '<table><thead><tr>'
+      + '<th>Marque</th><th>Fournisseur</th><th>Enseignes</th><th>Acheteur</th>'
+      + '<th>ID Partenaire</th><th>Doc Partenaire</th><th>Période</th>'
+      + '<th style="text-align:right">Montant HT</th><th>Statut</th>'
+      + '</tr></thead><tbody>' + rowsHtml + '</tbody></table>'
+      + '<div class="footer">'
+      + '<span>BUDGY — Groupe LDLC — Confidentiel</span>'
+      + '<span>' + sortedFiltered.length + ' opération' + (sortedFiltered.length !== 1 ? 's' : '') + ' exportée' + (sortedFiltered.length !== 1 ? 's' : '') + '</span>'
+      + '</div>'
+      + '</body></html>';
+    const w = window.open("", "_blank");
+    if (!w) { alert("Veuillez autoriser les pop-ups pour générer le PDF."); return; }
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => { w.focus(); w.print(); }, 400);
+  };
+
   if (loading) return <div style={{ minHeight:"100vh", background:"#000", display:"flex", alignItems:"center", justifyContent:"center", color:"#475569", fontSize:16 }}>Chargement…</div>;
   if (!currentUser) return <AuthModal onLogin={u=>setCurrentUser(u)} />;
 
@@ -1674,6 +1788,11 @@ function App() {
               })}
             </tbody>
           </table>
+        </div>
+        <div style={{ display:"flex", justifyContent:"flex-end", marginTop:14 }}>
+          <button onClick={handleExportResultsPdf} style={{ background:"#1e3a8a", border:"1px solid #3b82f6", color:"#fff", borderRadius:9, padding:"10px 22px", cursor:"pointer", fontSize:14, fontWeight:700, display:"flex", alignItems:"center", gap:8 }}>
+            ⬇ Exporter les résultats
+          </button>
         </div>
       </div>
 
