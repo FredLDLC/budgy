@@ -189,8 +189,8 @@ function KpiCard({ label, accentColor, textColor, amount, count, onClick, active
     <div onClick={onClick} style={{ background:active?`${accentColor}${bgOpacity}`:`${accentColor}${bgOpacity}`, borderRadius:14, padding:"18px 22px", flex:1, minWidth:160, border:`1px solid ${accentColor}55`, borderTop:`3px solid ${accentColor}`, outline:active?`2px solid ${accentColor}88`:"", cursor:"pointer", transition:"all .15s" }}>
       <div style={{ color:labelColor, fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:7 }}>{label}</div>
       {amount!=null
-        ? <div style={{ color:darkMode?textColor:accentColor, fontSize:22, fontWeight:800 }}>{countStr} <span style={{ color:darkMode?textColor:accentColor }}>({amount})</span></div>
-        : <div style={{ color:darkMode?textColor:accentColor, fontSize:22, fontWeight:800 }}>{countStr}</div>}
+        ? <div style={{ color:accentColor, fontSize:22, fontWeight:800 }}>{countStr} <span style={{ color:accentColor }}>({amount})</span></div>
+        : <div style={{ color:accentColor, fontSize:22, fontWeight:800 }}>{countStr}</div>}
     </div>
   );
 }
@@ -1727,13 +1727,13 @@ function App() {
         {/* Ligne 1 : filtre statut */}
         <div style={{ display:"flex", gap:7, marginBottom:8, flexWrap:"wrap" }}>
           {[["all","Tous les statuts"],["doc_recu","Traité"],["du_payer","Déclaré"],["du_declarer","À déclarer"],["en_cours","En cours"],["a_venir","À venir"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setFilter(v)} style={{ background:filter===v?(darkMode?"rgba(255,255,255,0.15)":"#000"):"rgba(255,255,255,0.04)", border:"1px solid "+(filter===v?(darkMode?"rgba(255,255,255,0.35)":"#000"):"rgba(255,255,255,0.1)"), color:filter===v?"#fff":"#9ca3af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:filter===v?600:400 }}>{l}</button>
+            <button key={v} onClick={()=>setFilter(v)} style={{ background:filter===v?(darkMode?"rgba(255,255,255,0.15)":"#374151"):"rgba(255,255,255,0.04)", border:"1px solid "+(filter===v?(darkMode?"rgba(255,255,255,0.35)":"#374151"):"rgba(255,255,255,0.1)"), color:filter===v?"#fff":"#9ca3af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:filter===v?600:400 }}>{l}</button>
           ))}
         </div>
         {/* Ligne 2 : filtre date */}
         <div style={{ display:"flex", gap:7, marginBottom:12, flexWrap:"wrap" }}>
           {[["all","Toutes les périodes"],["year","Année en cours"],["90","90 derniers jours"],["60","60 derniers jours"],["30","30 derniers jours"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setDateFilter(v)} style={{ background:dateFilter===v?(darkMode?"rgba(255,255,255,0.15)":"#000"):"rgba(255,255,255,0.04)", border:"1px solid "+(dateFilter===v?(darkMode?"rgba(255,255,255,0.35)":"#000"):"rgba(255,255,255,0.1)"), color:dateFilter===v?"#fff":"#9ca3af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:dateFilter===v?600:400 }}>{l}</button>
+            <button key={v} onClick={()=>setDateFilter(v)} style={{ background:dateFilter===v?(darkMode?"rgba(255,255,255,0.15)":"#374151"):"rgba(255,255,255,0.04)", border:"1px solid "+(dateFilter===v?(darkMode?"rgba(255,255,255,0.35)":"#374151"):"rgba(255,255,255,0.1)"), color:dateFilter===v?"#fff":"#9ca3af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:dateFilter===v?600:400 }}>{l}</button>
           ))}
         </div>
         {/* Recherche + Nouvelle opération */}
@@ -1788,7 +1788,7 @@ function App() {
                     <td style={{ padding:"12px 13px", color:"#d1d5db", fontSize:13, whiteSpace:"nowrap" }}>{periodStr}</td>
                     <td style={{ padding:"12px 13px", whiteSpace:"nowrap" }}>
                       {totalHT>0
-                        ? <div style={{ color:STATUS_TEXT[op.status]||color, fontWeight:800, fontSize:15 }}>{fmt(totalHT,cur)}</div>
+                        ? <div style={{ color:STATUS_COLOR[op.status]||color, fontWeight:800, fontSize:15 }}>{fmt(totalHT,cur)}</div>
                         : (op.products||[]).some(p=>parseFloat(p.qty)>0)
                           ? <span style={{ color:color, fontSize:13 }}>Ventes sans budget</span>
                           : <span style={{ color:"#334155" }}>—</span>}
