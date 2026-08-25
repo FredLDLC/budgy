@@ -1379,6 +1379,7 @@ function App() {
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
   const [dateFilter, setDateFilter] = useState("all");
+  const [acheteurFilter, setAcheteurFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [currentUser, setCurrentUser] = useState(null); // { id, name, role }
@@ -1473,8 +1474,15 @@ function App() {
     if (dateFilter==="30") return (nowMs-endMs) <= 30*86400000 || endMs>=nowMs;
     return true;
   };
-  const filtered=allOps.filter(o=>(filter==="all"||o.status===filter)&&matchSearch(o)&&applyDateFilter(o));
-  const searchOnly=allOps.filter(o=>matchSearch(o)&&applyDateFilter(o));
+  const applyAcheteurFilter = (op) => acheteurFilter==="all" || op.acheteur===acheteurFilter;
+  const acheteurNames = allUsers
+    .map(u=>fullName(u)||u.name)
+    .filter(Boolean)
+    .filter((name,i,arr)=>arr.indexOf(name)===i)
+    .filter(name=>allOps.some(o=>o.acheteur===name))
+    .sort((a,b)=>a.localeCompare(b));
+  const filtered=allOps.filter(o=>(filter==="all"||o.status===filter)&&matchSearch(o)&&applyDateFilter(o)&&applyAcheteurFilter(o));
+  const searchOnly=allOps.filter(o=>matchSearch(o)&&applyDateFilter(o)&&applyAcheteurFilter(o));
 
   const kpiAmt=statuses=>searchOnly.filter(o=>statuses.includes(o.status)).reduce((sum,o)=>{
     const t=computeTotal(o.products||[]);
@@ -1734,6 +1742,12 @@ function App() {
         <div style={{ display:"flex", gap:7, marginBottom:12, flexWrap:"wrap" }}>
           {[["all","Toutes les périodes"],["year","Année en cours"],["90","90 derniers jours"],["60","60 derniers jours"],["30","30 derniers jours"]].map(([v,l])=>(
             <button key={v} onClick={()=>setDateFilter(v)} style={{ background:dateFilter===v?(darkMode?"rgba(255,255,255,0.15)":"#374151"):"rgba(255,255,255,0.04)", border:"1px solid "+(dateFilter===v?(darkMode?"rgba(255,255,255,0.35)":"#374151"):"rgba(255,255,255,0.1)"), color:dateFilter===v?"#fff":"#9ca3af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:dateFilter===v?600:400 }}>{l}</button>
+          ))}
+        </div>
+        {/* Ligne 3 : filtre acheteur */}
+        <div style={{ display:"flex", gap:7, marginBottom:12, flexWrap:"wrap" }}>
+          {[["all","Tous les acheteurs"], ...acheteurNames.map(n=>[n,n])].map(([v,l])=>(
+            <button key={v} onClick={()=>setAcheteurFilter(v)} style={{ background:acheteurFilter===v?(darkMode?"rgba(255,255,255,0.15)":"#374151"):"rgba(255,255,255,0.04)", border:"1px solid "+(acheteurFilter===v?(darkMode?"rgba(255,255,255,0.35)":"#374151"):"rgba(255,255,255,0.1)"), color:acheteurFilter===v?"#fff":"#9ca3af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:acheteurFilter===v?600:400 }}>{l}</button>
           ))}
         </div>
         {/* Recherche + Nouvelle opération */}
