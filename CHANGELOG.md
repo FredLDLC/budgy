@@ -2,6 +2,10 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.5.0
+- Bordure des KPI inactifs légèrement moins opaque (mode clair et sombre)
+- À la connexion, filtrage par défaut sur les opérations de l'acheteur connecté, avec sélection automatique du statut selon la priorité : À déclarer > Déclaré > En cours > À venir > Traité (si aucune des précédentes n'a d'opération)
+
 ## v1.4.0
 - Bordures des KPI (actives et inactives) passées à 2px pour mieux marquer la différence
 - Nouveau filtre rapide de période "Plus de 30 jours" (opérations terminées depuis plus de 30 jours)

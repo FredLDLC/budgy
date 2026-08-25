@@ -194,7 +194,7 @@ function KpiCard({ label, emoji, accentColor, textColor, amount, count, onClick,
   const bgOpacity = darkMode ? (active?"55":"38") : (active?"70":"45");
   const labelColor = darkMode ? "#fff" : "#374151";
   return (
-    <div onClick={onClick} style={{ background:`${accentColor}${bgOpacity}`, borderRadius:14, padding:"18px 22px", flex:1, minWidth:160, border:`2px solid ${accentColor}55`, boxShadow:active?`inset 0 0 0 2px ${darkenHex(accentColor,0.4)}`:"none", cursor:"pointer", transition:"all .15s", display:"flex", alignItems:"center", gap:14 }}>
+    <div onClick={onClick} style={{ background:`${accentColor}${bgOpacity}`, borderRadius:14, padding:"18px 22px", flex:1, minWidth:160, border:`2px solid ${accentColor}${active?"55":"30"}`, boxShadow:active?`inset 0 0 0 2px ${darkenHex(accentColor,0.4)}`:"none", cursor:"pointer", transition:"all .15s", display:"flex", alignItems:"center", gap:14 }}>
       <span style={{ fontSize:40, lineHeight:1, flexShrink:0 }}>{emoji}</span>
       <div>
         <div style={{ color:labelColor, fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>{label}</div>
@@ -1410,6 +1410,21 @@ function App() {
       setLoading(false);
     }).catch(()=>setLoading(false));
   },[]);
+
+  const defaultFiltersApplied = useRef(false);
+  useEffect(()=>{
+    if (defaultFiltersApplied.current || loading || !currentUser) return;
+    defaultFiltersApplied.current = true;
+    const name = currentUser.name;
+    setAcheteurFilter(name||"all");
+    const myOps = ops.map(o=>({...o,status:statusOf(o)})).filter(o=>o.acheteur===name);
+    const cnt = s => myOps.filter(o=>o.status===s).length;
+    if (cnt("du_declarer")>0) setFilter("du_declarer");
+    else if (cnt("du_payer")>0) setFilter("du_payer");
+    else if (cnt("en_cours")>0) setFilter("en_cours");
+    else if (cnt("a_venir")>0) setFilter("a_venir");
+    else setFilter("doc_recu");
+  },[loading, currentUser, ops]);
 
   const isAdmin = currentUser?.role==="admin";
   const canEdit = (op) => isAdmin || op.createdBy===currentUser?.id;
