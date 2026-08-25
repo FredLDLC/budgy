@@ -1798,7 +1798,6 @@ function App() {
                         {STATUS_LABELS[op.status]||op.status}
                       </span>
                     </td>
-                    <td style={{ padding:"12px 13px", fontSize:12, fontFamily:"monospace" }}>{op.docPartner?<span style={{color:"#d1d5db"}}>{op.docPartner}</span>:<span style={{color:"#334155"}}>—</span>}</td>
                     <td style={{ padding:"8px 10px", textAlign:"center" }}>
                       {canEdit(op)&&<button onClick={e=>{e.stopPropagation();setConfirmDelete(op.id);}} style={{ background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.35)", color:"#fca5a5", borderRadius:7, padding:"6px 9px", cursor:"pointer", fontSize:14 }}>🗑</button>}
                     </td>
