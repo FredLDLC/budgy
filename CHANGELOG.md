@@ -2,6 +2,9 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.3.2
+- Fix : le marquage d'un KPI actif se fait désormais via une ombre interne (box-shadow) au lieu de changer la bordure, pour garantir que la taille des cartes KPI reste parfaitement fixe quel que soit l'ordre de clic
+
 ## v1.3.1
 - Cadre du logo LDLC réduit à 1px
 - Bordure des KPI actifs réduite à 1px (au lieu de 3px) pour éviter le décalage de layout par rapport aux KPI inactifs

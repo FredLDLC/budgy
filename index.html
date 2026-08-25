@@ -193,7 +193,7 @@ function KpiCard({ label, emoji, accentColor, textColor, amount, count, onClick,
   const bgOpacity = darkMode ? (active?"55":"38") : (active?"70":"45");
   const labelColor = darkMode ? "#fff" : "#374151";
   return (
-    <div onClick={onClick} style={{ background:active?`${accentColor}${bgOpacity}`:`${accentColor}${bgOpacity}`, borderRadius:14, padding:"18px 22px", flex:1, minWidth:160, border:active?`1px solid ${darkenHex(accentColor,0.4)}`:`1px solid ${accentColor}55`, cursor:"pointer", transition:"all .15s", display:"flex", alignItems:"center", gap:14 }}>
+    <div onClick={onClick} style={{ background:`${accentColor}${bgOpacity}`, borderRadius:14, padding:"18px 22px", flex:1, minWidth:160, border:`1px solid ${accentColor}55`, boxShadow:active?`inset 0 0 0 1px ${darkenHex(accentColor,0.4)}`:"none", cursor:"pointer", transition:"all .15s", display:"flex", alignItems:"center", gap:14 }}>
       <span style={{ fontSize:40, lineHeight:1, flexShrink:0 }}>{emoji}</span>
       <div>
         <div style={{ color:labelColor, fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>{label}</div>
