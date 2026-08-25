@@ -183,7 +183,7 @@ const dashedBtn = { background:"rgba(255,255,255,0.04)", border:"1px dashed rgba
 
 function KpiCard({ label, accentColor, textColor, amount, count, onClick, active, darkMode }) {
   const countStr = count===0?"Aucune opération":count===1?"1 opération":`${count} opérations`;
-  const bgOpacity = darkMode ? (active?"35":"20") : (active?"70":"45");
+  const bgOpacity = darkMode ? (active?"55":"38") : (active?"70":"45");
   const labelColor = darkMode ? "#9ca3af" : "#374151";
   return (
     <div onClick={onClick} style={{ background:active?`${accentColor}${bgOpacity}`:`${accentColor}${bgOpacity}`, borderRadius:14, padding:"18px 22px", flex:1, minWidth:160, border:`1px solid ${accentColor}55`, borderTop:`3px solid ${accentColor}`, outline:active?`2px solid ${accentColor}88`:"", cursor:"pointer", transition:"all .15s" }}>
@@ -1419,10 +1419,6 @@ function App() {
   const handleLogout=()=>{ session.set(null); setCurrentUser(null); };
 
   const allOps=ops.map(o=>({...o,status:statusOf(o)}));
-  const myOpsToDeclare = allOps.filter(o=>
-    o.status==="du_declarer" &&
-    (isAdmin || o.createdBy===currentUser?.id || o.acheteur===currentUser?.name)
-  );
 
   const ENSEIGNE_ALIASES = {
     "ldlc.com":      ["ldlc","ldlccom","ldlc.com"],
@@ -1700,36 +1696,13 @@ function App() {
       </div>
 
       <div style={{ padding:"20px 24px" }}>
-        {/* Notification "à déclarer" */}
-        {myOpsToDeclare.length>0&&(
-          <div style={{ background:"rgba(249,115,22,0.12)", border:"1px solid rgba(249,115,22,0.4)", borderRadius:12, padding:"14px 20px", marginBottom:18, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-              <span style={{ fontSize:22 }}>⚠️</span>
-              <div>
-                <div style={{ color:"#fdba74", fontWeight:700, fontSize:14 }}>
-                  {myOpsToDeclare.length === 1 ? "1 opération à déclarer" : `${myOpsToDeclare.length} opérations à déclarer`}
-                </div>
-                <div style={{ color:"#9ca3af", fontSize:12, marginTop:2 }}>
-                  <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:4 }}>
-                    {myOpsToDeclare.map(o=>(
-                      <span key={o.id} onClick={()=>setEditOp(o)} style={{ background:"rgba(249,115,22,0.2)", border:"1px solid rgba(249,115,22,0.4)", color:"#fdba74", borderRadius:6, padding:"3px 10px", fontSize:12, cursor:"pointer", fontWeight:600 }}>
-                        {[o.marque,o.fournisseur&&o.fournisseur!==o.marque?o.fournisseur:null,o.idPartner||o.idLdlc].filter(Boolean).join(" / ")}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        )}
         {/* KPIs — ordre Traité · Dû · En cours · À venir */}
         <div style={{ display:"flex", gap:10, marginBottom:18, flexWrap:"wrap" }}>
-          <KpiCard label="Traité"      accentColor="#22c55e" textColor="#86efac" amount={fmtKpi(kpiAmt(["doc_recu"]))}    count={kpiCnt(["doc_recu"])}    onClick={()=>setFilter(f=>f==="doc_recu"?"all":"doc_recu")}    active={filter==="doc_recu"}    darkMode={darkMode} />
-          <KpiCard label="Déclaré"     accentColor="#ef4444" textColor="#fca5a5" amount={fmtKpi(kpiAmt(["du_payer"]))}    count={kpiCnt(["du_payer"])}    onClick={()=>setFilter(f=>f==="du_payer"?"all":"du_payer")}    active={filter==="du_payer"}    darkMode={darkMode} />
-          <KpiCard label="À déclarer"  accentColor="#f97316" textColor="#fdba74" amount={null} count={kpiCnt(["du_declarer"])} onClick={()=>setFilter(f=>f==="du_declarer"?"all":"du_declarer")} active={filter==="du_declarer"} darkMode={darkMode} />
-          <KpiCard label="En cours"    accentColor="#eab308" textColor="#fde047" amount={null} count={kpiCnt(["en_cours"])}   onClick={()=>setFilter(f=>f==="en_cours"?"all":"en_cours")}    active={filter==="en_cours"}    darkMode={darkMode} />
-          <KpiCard label="À venir"     accentColor="#3b82f6" textColor="#93c5fd" amount={null} count={kpiCnt(["a_venir"])}    onClick={()=>setFilter(f=>f==="a_venir"?"all":"a_venir")}      active={filter==="a_venir"}     darkMode={darkMode} />
+          <KpiCard label="✅ Traité"      accentColor="#22c55e" textColor="#86efac" amount={fmtKpi(kpiAmt(["doc_recu"]))}    count={kpiCnt(["doc_recu"])}    onClick={()=>setFilter(f=>f==="doc_recu"?"all":"doc_recu")}    active={filter==="doc_recu"}    darkMode={darkMode} />
+          <KpiCard label="💸 Déclaré"     accentColor="#ef4444" textColor="#fca5a5" amount={fmtKpi(kpiAmt(["du_payer"]))}    count={kpiCnt(["du_payer"])}    onClick={()=>setFilter(f=>f==="du_payer"?"all":"du_payer")}    active={filter==="du_payer"}    darkMode={darkMode} />
+          <KpiCard label="📝 À déclarer"  accentColor="#f97316" textColor="#fdba74" amount={null} count={kpiCnt(["du_declarer"])} onClick={()=>setFilter(f=>f==="du_declarer"?"all":"du_declarer")} active={filter==="du_declarer"} darkMode={darkMode} />
+          <KpiCard label="🔄 En cours"    accentColor="#eab308" textColor="#fde047" amount={null} count={kpiCnt(["en_cours"])}   onClick={()=>setFilter(f=>f==="en_cours"?"all":"en_cours")}    active={filter==="en_cours"}    darkMode={darkMode} />
+          <KpiCard label="📅 À venir"     accentColor="#3b82f6" textColor="#93c5fd" amount={null} count={kpiCnt(["a_venir"])}    onClick={()=>setFilter(f=>f==="a_venir"?"all":"a_venir")}      active={filter==="a_venir"}     darkMode={darkMode} />
         </div>
 
         {/* Ligne 1 : filtre statut */}
