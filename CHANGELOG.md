@@ -2,6 +2,11 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.2.1
+- Emoji "Déclaré" remplacé par 🫰🏻
+- Marge libellé/donnée des KPI réduite de 3px
+- Taille des emojis KPI augmentée de 3px
+
 ## v1.2.0
 - Libellés des KPI en blanc (mode sombre)
 - Nouveaux emojis KPI (✅, 🫰, 📩, ▶️, ⏭️), placés à gauche de la carte sur toute sa hauteur (plus gros)

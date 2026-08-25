@@ -187,9 +187,9 @@ function KpiCard({ label, emoji, accentColor, textColor, amount, count, onClick,
   const labelColor = darkMode ? "#fff" : "#374151";
   return (
     <div onClick={onClick} style={{ background:active?`${accentColor}${bgOpacity}`:`${accentColor}${bgOpacity}`, borderRadius:14, padding:"18px 22px", flex:1, minWidth:160, border:`1px solid ${accentColor}55`, borderTop:`3px solid ${accentColor}`, outline:active?`2px solid ${accentColor}88`:"", cursor:"pointer", transition:"all .15s", display:"flex", alignItems:"center", gap:14 }}>
-      <span style={{ fontSize:32, lineHeight:1, flexShrink:0 }}>{emoji}</span>
+      <span style={{ fontSize:35, lineHeight:1, flexShrink:0 }}>{emoji}</span>
       <div>
-        <div style={{ color:labelColor, fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:7 }}>{label}</div>
+        <div style={{ color:labelColor, fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>{label}</div>
         {amount!=null
           ? <div style={{ color:accentColor, fontSize:22, fontWeight:800 }}>{countStr} <span style={{ color:accentColor }}>({amount})</span></div>
           : <div style={{ color:accentColor, fontSize:22, fontWeight:800 }}>{countStr}</div>}
@@ -1702,7 +1702,7 @@ function App() {
         {/* KPIs — ordre Traité · Dû · En cours · À venir */}
         <div style={{ display:"flex", gap:10, marginBottom:18, flexWrap:"wrap" }}>
           <KpiCard label="Traité"      emoji="✅"  accentColor="#22c55e" textColor="#86efac" amount={fmtKpi(kpiAmt(["doc_recu"]))}    count={kpiCnt(["doc_recu"])}    onClick={()=>setFilter(f=>f==="doc_recu"?"all":"doc_recu")}    active={filter==="doc_recu"}    darkMode={darkMode} />
-          <KpiCard label="Déclaré"     emoji="🫰"  accentColor="#ef4444" textColor="#fca5a5" amount={fmtKpi(kpiAmt(["du_payer"]))}    count={kpiCnt(["du_payer"])}    onClick={()=>setFilter(f=>f==="du_payer"?"all":"du_payer")}    active={filter==="du_payer"}    darkMode={darkMode} />
+          <KpiCard label="Déclaré"     emoji="🫰🏻"  accentColor="#ef4444" textColor="#fca5a5" amount={fmtKpi(kpiAmt(["du_payer"]))}    count={kpiCnt(["du_payer"])}    onClick={()=>setFilter(f=>f==="du_payer"?"all":"du_payer")}    active={filter==="du_payer"}    darkMode={darkMode} />
           <KpiCard label="À déclarer"  emoji="📩"  accentColor="#f97316" textColor="#fdba74" amount={null} count={kpiCnt(["du_declarer"])} onClick={()=>setFilter(f=>f==="du_declarer"?"all":"du_declarer")} active={filter==="du_declarer"} darkMode={darkMode} />
           <KpiCard label="En cours"    emoji="▶️"  accentColor="#eab308" textColor="#fde047" amount={null} count={kpiCnt(["en_cours"])}   onClick={()=>setFilter(f=>f==="en_cours"?"all":"en_cours")}    active={filter==="en_cours"}    darkMode={darkMode} />
           <KpiCard label="À venir"     emoji="⏭️"  accentColor="#3b82f6" textColor="#93c5fd" amount={null} count={kpiCnt(["a_venir"])}    onClick={()=>setFilter(f=>f==="a_venir"?"all":"a_venir")}      active={filter==="a_venir"}     darkMode={darkMode} />
