@@ -194,7 +194,7 @@ function KpiCard({ label, emoji, accentColor, textColor, amount, count, onClick,
   const bgOpacity = darkMode ? (active?"55":"38") : (active?"70":"45");
   const labelColor = darkMode ? "#fff" : "#374151";
   return (
-    <div onClick={onClick} style={{ background:`${accentColor}${bgOpacity}`, borderRadius:14, padding:"18px 22px", flex:1, minWidth:160, border:`1px solid ${accentColor}55`, boxShadow:active?`inset 0 0 0 1px ${darkenHex(accentColor,0.4)}`:"none", cursor:"pointer", transition:"all .15s", display:"flex", alignItems:"center", gap:14 }}>
+    <div onClick={onClick} style={{ background:`${accentColor}${bgOpacity}`, borderRadius:14, padding:"18px 22px", flex:1, minWidth:160, border:`2px solid ${accentColor}55`, boxShadow:active?`inset 0 0 0 2px ${darkenHex(accentColor,0.4)}`:"none", cursor:"pointer", transition:"all .15s", display:"flex", alignItems:"center", gap:14 }}>
       <span style={{ fontSize:40, lineHeight:1, flexShrink:0 }}>{emoji}</span>
       <div>
         <div style={{ color:labelColor, fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>{label}</div>
@@ -1479,6 +1479,7 @@ function App() {
     if (dateFilter==="90") return (nowMs-endMs) <= 90*86400000 || endMs>=nowMs;
     if (dateFilter==="60") return (nowMs-endMs) <= 60*86400000 || endMs>=nowMs;
     if (dateFilter==="30") return (nowMs-endMs) <= 30*86400000 || endMs>=nowMs;
+    if (dateFilter==="over30") return (nowMs-endMs) > 30*86400000;
     return true;
   };
   const applyAcheteurFilter = (op) => acheteurFilter==="all" || op.acheteur===acheteurFilter;
@@ -1724,7 +1725,7 @@ function App() {
         </div>
         {/* Ligne 2 : filtre date */}
         <div style={{ display:"flex", gap:7, marginBottom:12, flexWrap:"wrap" }}>
-          {[["all","Toutes les périodes"],["year","Année en cours"],["90","90 derniers jours"],["60","60 derniers jours"],["30","30 derniers jours"]].map(([v,l])=>(
+          {[["all","Toutes les périodes"],["year","Année en cours"],["90","90 derniers jours"],["60","60 derniers jours"],["30","30 derniers jours"],["over30","Plus de 30 jours"]].map(([v,l])=>(
             <button key={v} onClick={()=>setDateFilter(v)} style={{ background:dateFilter===v?(darkMode?"rgba(255,255,255,0.15)":"#374151"):"rgba(255,255,255,0.04)", border:"1px solid "+(dateFilter===v?(darkMode?"rgba(255,255,255,0.35)":"#374151"):"rgba(255,255,255,0.1)"), color:dateFilter===v?"#fff":"#9ca3af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:dateFilter===v?600:400 }}>{l}</button>
           ))}
         </div>

@@ -2,6 +2,10 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.4.0
+- Bordures des KPI (actives et inactives) passées à 2px pour mieux marquer la différence
+- Nouveau filtre rapide de période "Plus de 30 jours" (opérations terminées depuis plus de 30 jours)
+
 ## v1.3.3
 - Fix (vraie cause du décalage) : la barre de défilement verticale apparaissait/disparaissait selon le nombre de lignes du tableau filtré, ce qui redistribuait la largeur de toute la page (KPI compris). La place de la scrollbar est désormais toujours réservée (`scrollbar-gutter: stable`), donc plus aucun décalage horizontal au clic sur un filtre.
 
