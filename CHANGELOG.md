@@ -2,6 +2,11 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.3.0
+- Cadre blanc (2px solid) autour du logo Groupe LDLC en haut à gauche
+- Retrait du "✓" après "Traité" dans le badge Statut
+- KPI actif (filtre cliqué) : bordure pleine et foncée tout autour de la carte (mode sombre et clair) ; suppression du marquage supérieur par défaut sur les KPI non actifs
+
 ## v1.2.2
 - Taille des emojis KPI augmentée de 5px supplémentaires (40px)
 
