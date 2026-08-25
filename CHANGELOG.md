@@ -2,6 +2,10 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.3.1
+- Cadre du logo LDLC réduit à 1px
+- Bordure des KPI actifs réduite à 1px (au lieu de 3px) pour éviter le décalage de layout par rapport aux KPI inactifs
+
 ## v1.3.0
 - Cadre blanc (2px solid) autour du logo Groupe LDLC en haut à gauche
 - Retrait du "✓" après "Traité" dans le badge Statut
