@@ -2,6 +2,9 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.2.2
+- Taille des emojis KPI augmentée de 5px supplémentaires (40px)
+
 ## v1.2.1
 - Emoji "Déclaré" remplacé par 🫰🏻
 - Marge libellé/donnée des KPI réduite de 3px
