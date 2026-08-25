@@ -2,6 +2,9 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.3.3
+- Fix (vraie cause du décalage) : la barre de défilement verticale apparaissait/disparaissait selon le nombre de lignes du tableau filtré, ce qui redistribuait la largeur de toute la page (KPI compris). La place de la scrollbar est désormais toujours réservée (`scrollbar-gutter: stable`), donc plus aucun décalage horizontal au clic sur un filtre.
+
 ## v1.3.2
 - Fix : le marquage d'un KPI actif se fait désormais via une ombre interne (box-shadow) au lieu de changer la bordure, pour garantir que la taille des cartes KPI reste parfaitement fixe quel que soit l'ordre de clic
 
