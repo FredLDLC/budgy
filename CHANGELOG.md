@@ -2,6 +2,11 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.7.0
+- Mode clair : ligne d'en-tête du tableau principal (Marque, Fournisseur, Enseignes…) en fond blanc
+- Mode clair : champ de recherche/filtre en fond blanc
+- Édition d'opération : suppression du séparateur horizontal entre les lignes de la liste des produits
+
 ## v1.6.1
 - Fix : les filtres rapides actifs en mode clair passent bien en fond noir + texte blanc (le noir pur entrait en collision avec une règle de conversion globale du mode clair qui le repassait en gris)
 - Fix : la colorisation par statut des lignes du tableau principal (rouge = déclaré, vert = traité, etc.) ne fonctionnait plus en mode clair, à cause de la même collision (bordure de ligne en 0.06 qui écrasait le fond coloré) — la bordure de ligne est désormais calculée directement selon le mode

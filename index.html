@@ -1110,7 +1110,7 @@ function EditionModal({ op, onSave, onClose, currentUser, allUsers=[], fetchRate
                 </thead>
                 <tbody>
                   {form.products.map((p,i)=>(
-                    <tr key={i} style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+                    <tr key={i}>
                       {COLS.map(c=>(
                         <td key={c.key} style={{ padding:"3px 3px" }}>
                           {c.key==="_ttc"?(
@@ -1756,7 +1756,7 @@ function App() {
         </div>
         {/* Recherche + Nouvelle opération */}
         <div style={{ display:"flex", gap:10, marginBottom:16, alignItems:"center" }}>
-          <input placeholder="🔎  Filtrer : par marque, fournisseur, acheteur, ID, référence produit, enseigne, année…" value={search} onChange={e=>setSearch(e.target.value)} style={{ ...inp, flex:1, background:"#111", border:"1px solid rgba(255,255,255,0.08)", color:"#e2e8f0" }} />
+          <input placeholder="🔎  Filtrer : par marque, fournisseur, acheteur, ID, référence produit, enseigne, année…" value={search} onChange={e=>setSearch(e.target.value)} style={{ ...inp, flex:1, background:darkMode?"#111":"#fff", border:"1px solid rgba(255,255,255,0.08)", color:"#e2e8f0" }} />
           <button onClick={()=>setEditOp(null)} style={{ ...btnP, padding:"9px 20px", whiteSpace:"nowrap", flexShrink:0 }}>+ Nouvelle opération</button>
         </div>
 
@@ -1764,7 +1764,7 @@ function App() {
         <div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:14, overflow:"auto" }}>
           <table style={{ width:"100%", borderCollapse:"collapse", fontSize:14, minWidth:860 }}>
             <thead>
-              <tr style={{ borderBottom:"1px solid rgba(255,255,255,0.09)", background:"rgba(255,255,255,0.03)" }}>
+              <tr style={{ borderBottom:darkMode?"1px solid rgba(255,255,255,0.09)":"1px solid rgba(0,0,0,0.1)", background:darkMode?"rgba(255,255,255,0.03)":"#fff" }}>
                 {[["Marque","marque"],["Fournisseur","fournisseur"],["Enseignes",null],["Acheteur","acheteur"],["ID Partenaire","idPartner"],["Doc Partenaire","docPartner"],["Période","periode"],["Montant","montant"],["Statut",null],["",null]].map(([h,col])=>(
                   <th key={h} onClick={col?()=>handleSort(col):undefined} style={{ textAlign:"left", color:sortCol===col?"#f1f5f9":"#9ca3af", padding:"11px 13px", fontWeight:700, fontSize:11, textTransform:"uppercase", letterSpacing:0.6, whiteSpace:"nowrap", cursor:col?"pointer":"default", userSelect:"none" }}>
                     {h}{col&&sortCol===col?(sortDir==="asc"?" ↑":" ↓"):""}
