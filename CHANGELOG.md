@@ -2,6 +2,9 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.7.1
+- Fix : une règle CSS générique (`thead tr`) écrasait avec !important le fond blanc appliqué à l'en-tête du tableau principal en mode clair ; elle est corrigée pour renvoyer un fond blanc
+
 ## v1.7.0
 - Mode clair : ligne d'en-tête du tableau principal (Marque, Fournisseur, Enseignes…) en fond blanc
 - Mode clair : champ de recherche/filtre en fond blanc
