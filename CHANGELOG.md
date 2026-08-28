@@ -2,6 +2,9 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.8.0
+- Le mode sombre/clair est mémorisé (localStorage) et restauré à la prochaine visite ; par défaut (première visite), le mode clair est chargé
+
 ## v1.7.1
 - Fix : une règle CSS générique (`thead tr`) écrasait avec !important le fond blanc appliqué à l'en-tête du tableau principal en mode clair ; elle est corrigée pour renvoyer un fond blanc
 

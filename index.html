@@ -1396,7 +1396,12 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null); // { id, name, role }
   const [showAdmin, setShowAdmin] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(()=>{
+    try { const v = localStorage.getItem("budgy_darkmode_v1"); return v===null?false:v==="1"; } catch { return false; }
+  });
+  useEffect(()=>{
+    try { localStorage.setItem("budgy_darkmode_v1", darkMode?"1":"0"); } catch {}
+  },[darkMode]);
   const [pendingCount, setPendingCount] = useState(0);
   const [allUsers, setAllUsers] = useState([]);
 
