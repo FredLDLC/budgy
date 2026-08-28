@@ -2,6 +2,10 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.6.1
+- Fix : les filtres rapides actifs en mode clair passent bien en fond noir + texte blanc (le noir pur entrait en collision avec une règle de conversion globale du mode clair qui le repassait en gris)
+- Fix : la colorisation par statut des lignes du tableau principal (rouge = déclaré, vert = traité, etc.) ne fonctionnait plus en mode clair, à cause de la même collision (bordure de ligne en 0.06 qui écrasait le fond coloré) — la bordure de ligne est désormais calculée directement selon le mode
+
 ## v1.6.0
 - Mode clair : carte "Liste des produits" (édition d'opération) en fond blanc
 - Mode clair : filtres rapides (statut, période, acheteur) inactifs en blanc, actif en noir

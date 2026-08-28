@@ -1739,19 +1739,19 @@ function App() {
         {/* Ligne 1 : filtre statut */}
         <div style={{ display:"flex", gap:7, marginBottom:8, flexWrap:"wrap" }}>
           {[["all","Tous les statuts"],["doc_recu","Traité"],["du_payer","Déclaré"],["du_declarer","À déclarer"],["en_cours","En cours"],["a_venir","À venir"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setFilter(v)} style={{ background:filter===v?(darkMode?"rgba(255,255,255,0.15)":"#000"):(darkMode?"rgba(255,255,255,0.04)":"#fff"), border:"1px solid "+(filter===v?(darkMode?"rgba(255,255,255,0.35)":"#000"):(darkMode?"rgba(255,255,255,0.1)":"#d1d5db")), color:filter===v?"#fff":(darkMode?"#9ca3af":"#374151"), borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:filter===v?600:400 }}>{l}</button>
+            <button key={v} onClick={()=>setFilter(v)} style={{ background:filter===v?(darkMode?"rgba(255,255,255,0.15)":"#0a0a0a"):(darkMode?"rgba(255,255,255,0.04)":"#fff"), border:"1px solid "+(filter===v?(darkMode?"rgba(255,255,255,0.35)":"#0a0a0a"):(darkMode?"rgba(255,255,255,0.1)":"#d1d5db")), color:filter===v?"#fff":(darkMode?"#9ca3af":"#374151"), borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:filter===v?600:400 }}>{l}</button>
           ))}
         </div>
         {/* Ligne 2 : filtre date */}
         <div style={{ display:"flex", gap:7, marginBottom:12, flexWrap:"wrap" }}>
           {[["all","Toutes les périodes"],["year","Année en cours"],["90","90 derniers jours"],["60","60 derniers jours"],["30","30 derniers jours"],["over30","Plus de 30 jours"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setDateFilter(v)} style={{ background:dateFilter===v?(darkMode?"rgba(255,255,255,0.15)":"#000"):(darkMode?"rgba(255,255,255,0.04)":"#fff"), border:"1px solid "+(dateFilter===v?(darkMode?"rgba(255,255,255,0.35)":"#000"):(darkMode?"rgba(255,255,255,0.1)":"#d1d5db")), color:dateFilter===v?"#fff":(darkMode?"#9ca3af":"#374151"), borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:dateFilter===v?600:400 }}>{l}</button>
+            <button key={v} onClick={()=>setDateFilter(v)} style={{ background:dateFilter===v?(darkMode?"rgba(255,255,255,0.15)":"#0a0a0a"):(darkMode?"rgba(255,255,255,0.04)":"#fff"), border:"1px solid "+(dateFilter===v?(darkMode?"rgba(255,255,255,0.35)":"#0a0a0a"):(darkMode?"rgba(255,255,255,0.1)":"#d1d5db")), color:dateFilter===v?"#fff":(darkMode?"#9ca3af":"#374151"), borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:dateFilter===v?600:400 }}>{l}</button>
           ))}
         </div>
         {/* Ligne 3 : filtre acheteur */}
         <div style={{ display:"flex", gap:7, marginBottom:12, flexWrap:"wrap" }}>
           {[["all","Tous les acheteurs"], ...acheteurNames.map(n=>[n,n])].map(([v,l])=>(
-            <button key={v} onClick={()=>setAcheteurFilter(v)} style={{ background:acheteurFilter===v?(darkMode?"rgba(255,255,255,0.15)":"#000"):(darkMode?"rgba(255,255,255,0.04)":"#fff"), border:"1px solid "+(acheteurFilter===v?(darkMode?"rgba(255,255,255,0.35)":"#000"):(darkMode?"rgba(255,255,255,0.1)":"#d1d5db")), color:acheteurFilter===v?"#fff":(darkMode?"#9ca3af":"#374151"), borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:acheteurFilter===v?600:400 }}>{l}</button>
+            <button key={v} onClick={()=>setAcheteurFilter(v)} style={{ background:acheteurFilter===v?(darkMode?"rgba(255,255,255,0.15)":"#0a0a0a"):(darkMode?"rgba(255,255,255,0.04)":"#fff"), border:"1px solid "+(acheteurFilter===v?(darkMode?"rgba(255,255,255,0.35)":"#0a0a0a"):(darkMode?"rgba(255,255,255,0.1)":"#d1d5db")), color:acheteurFilter===v?"#fff":(darkMode?"#9ca3af":"#374151"), borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:acheteurFilter===v?600:400 }}>{l}</button>
           ))}
         </div>
         {/* Recherche + Nouvelle opération */}
@@ -1788,7 +1788,7 @@ function App() {
                 return (
                   <tr key={op.id}
                     onClick={e=>{ if(e.target.type==="checkbox"||e.target.closest("button")) return; setEditOp(op); }}
-                    style={{ borderBottom:"1px solid rgba(255,255,255,0.06)", background:`${color}30`, cursor:"pointer" }}
+                    style={{ borderBottom:darkMode?"1px solid rgba(255,255,255,0.06)":"1px solid rgba(0,0,0,0.08)", background:`${color}30`, cursor:"pointer" }}
                     onMouseEnter={e=>e.currentTarget.style.background=`${color}50`}
                     onMouseLeave={e=>e.currentTarget.style.background=`${color}30`}>
                     <td style={{ padding:"12px 13px", color:"#f1f5f9", fontWeight:700, fontSize:14 }}>{op.marque||"—"}</td>
