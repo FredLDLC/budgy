@@ -1734,8 +1734,8 @@ function App() {
       <div style={{ padding:"20px 24px" }}>
         {/* KPIs — ordre Traité · Dû · En cours · À venir */}
         <div style={{ display:"flex", gap:10, marginBottom:18, flexWrap:"wrap" }}>
-          <KpiCard label="Traité"      emoji="✅"  accentColor="#22c55e" textColor="#86efac" amount={fmtKpi(kpiAmt(["doc_recu"]))}    count={kpiCnt(["doc_recu"])}    onClick={()=>setFilter(f=>f==="doc_recu"?"all":"doc_recu")}    active={filter==="doc_recu"}    darkMode={darkMode} />
-          <KpiCard label="Déclaré"     emoji="🫰🏻"  accentColor="#ef4444" textColor="#fca5a5" amount={fmtKpi(kpiAmt(["du_payer"]))}    count={kpiCnt(["du_payer"])}    onClick={()=>setFilter(f=>f==="du_payer"?"all":"du_payer")}    active={filter==="du_payer"}    darkMode={darkMode} />
+          <KpiCard label="Traitées"    emoji="✅"  accentColor="#22c55e" textColor="#86efac" amount={fmtKpi(kpiAmt(["doc_recu"]))}    count={kpiCnt(["doc_recu"])}    onClick={()=>setFilter(f=>f==="doc_recu"?"all":"doc_recu")}    active={filter==="doc_recu"}    darkMode={darkMode} />
+          <KpiCard label="À FAIRE PAYER" emoji="🫰🏻"  accentColor="#ef4444" textColor="#fca5a5" amount={fmtKpi(kpiAmt(["du_payer"]))}    count={kpiCnt(["du_payer"])}    onClick={()=>setFilter(f=>f==="du_payer"?"all":"du_payer")}    active={filter==="du_payer"}    darkMode={darkMode} />
           <KpiCard label="À déclarer"  emoji="📩"  accentColor="#f97316" textColor="#fdba74" amount={null} count={kpiCnt(["du_declarer"])} onClick={()=>setFilter(f=>f==="du_declarer"?"all":"du_declarer")} active={filter==="du_declarer"} darkMode={darkMode} />
           <KpiCard label="En cours"    emoji="▶️"  accentColor="#eab308" textColor="#fde047" amount={null} count={kpiCnt(["en_cours"])}   onClick={()=>setFilter(f=>f==="en_cours"?"all":"en_cours")}    active={filter==="en_cours"}    darkMode={darkMode} />
           <KpiCard label="À venir"     emoji="⏭️"  accentColor="#3b82f6" textColor="#93c5fd" amount={null} count={kpiCnt(["a_venir"])}    onClick={()=>setFilter(f=>f==="a_venir"?"all":"a_venir")}      active={filter==="a_venir"}     darkMode={darkMode} />

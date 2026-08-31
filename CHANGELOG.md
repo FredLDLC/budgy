@@ -2,6 +2,10 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.9.0
+- KPI "Déclaré" renommé en "À faire payer"
+- KPI "Traité" renommé en "Traitées" (accord féminin pluriel, opérations)
+
 ## v1.8.0
 - Le mode sombre/clair est mémorisé (localStorage) et restauré à la prochaine visite ; par défaut (première visite), le mode clair est chargé
 
