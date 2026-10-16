@@ -1790,6 +1790,8 @@ function App() {
                 const color=STATUS_COLOR[op.status];
                 const fournisseur=op.fournisseur&&op.fournisseur!==op.marque?op.fournisseur:(op.fournisseur||op.marque||"—");
                 const periodStr=(op.dateStart&&op.dateEnd)?`${displayDate(op.dateStart)} → ${displayDate(op.dateEnd)}`:"—";
+                const daysSinceEnd=(op.status==="du_payer"&&op.dateEnd)?Math.floor((Date.now()-new Date(op.dateEnd).getTime())/86400000):null;
+                const daysLabel=daysSinceEnd===null||isNaN(daysSinceEnd)||daysSinceEnd<0?null:daysSinceEnd===0?"aujourd'hui":daysSinceEnd===1?"il y a 1 jour":`il y a ${daysSinceEnd} jours`;
                 return (
                   <tr key={op.id}
                     onClick={e=>{ if(e.target.type==="checkbox"||e.target.closest("button")) return; setEditOp(op); }}
@@ -1808,7 +1810,7 @@ function App() {
                     <td style={{ padding:"12px 13px", color:"#e2e8f0", fontSize:13 }}>{op.acheteur||""}</td>
                     <td style={{ padding:"12px 13px", color:"#d1d5db", fontFamily:"monospace", fontSize:12 }}>{op.idPartner||"—"}</td>
                     <td style={{ padding:"12px 13px", fontSize:12, fontFamily:"monospace" }}>{op.docPartner?<span style={{color:"#d1d5db"}}>{op.docPartner}</span>:<span style={{color:"#334155"}}>—</span>}</td>
-                    <td style={{ padding:"12px 13px", color:"#d1d5db", fontSize:13, whiteSpace:"nowrap" }}>{periodStr}</td>
+                    <td style={{ padding:"12px 13px", color:"#d1d5db", fontSize:13, whiteSpace:"nowrap" }}>{periodStr}{daysLabel&&<span style={{ color:darkMode?"#f87171":"#dc2626", fontWeight:daysSinceEnd>30?800:400, marginLeft:6 }}>({daysLabel})</span>}</td>
                     <td style={{ padding:"12px 13px", whiteSpace:"nowrap" }}>
                       {totalHT>0
                         ? <div style={{ color:STATUS_COLOR[op.status]||color, fontWeight:800, fontSize:15 }}>{fmt(totalHT,cur)}</div>

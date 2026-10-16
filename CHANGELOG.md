@@ -2,6 +2,9 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.10.0
+- Colonne "Période" : pour les opérations au statut "Déclaré" (À faire payer), ajout en rouge du nombre de jours écoulés depuis la fin de la promo, ex. "(il y a 4 jours)" ; en gras au-delà de 30 jours
+
 ## v1.9.0
 - KPI "Déclaré" renommé en "À faire payer"
 - KPI "Traité" renommé en "Traitées" (accord féminin pluriel, opérations)
