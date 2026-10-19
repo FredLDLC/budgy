@@ -1169,8 +1169,8 @@ function EditionModal({ op, onSave, onClose, currentUser, allUsers=[], fetchRate
 
             {/* Boutons sous le tableau */}
             <div style={{ display:"flex", gap:10, marginTop:10 }}>
-              <button onClick={addRow} style={{ ...btnG, fontSize:14, padding:"9px 20px" }}>+ Ajouter une ligne</button>
-              <button onClick={()=>setShowPaste(true)} style={{ ...btnG, fontSize:14, padding:"9px 20px" }}>📋 Coller des données</button>
+              <button onClick={addRow} style={{ ...btnG, fontSize:14, padding:"9px 20px" }}>✏️ Ajouter une ligne</button>
+              <button onClick={()=>setShowPaste(true)} style={{ ...btnG, fontSize:14, padding:"9px 20px" }}>📥 Importer des données</button>
               <button onClick={copyLdlcRefs} style={{ ...btnG, fontSize:14, padding:"9px 20px" }}>{refsCopied?"✓ Refs copiées":"📑 Copier les refs LDLC"}</button>
             </div>
 

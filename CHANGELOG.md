@@ -2,6 +2,9 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.11.1
+- Édition d'opération : boutons renommés "📥 Importer des données" et "✏️ Ajouter une ligne"
+
 ## v1.11.0
 - Édition d'opération : bouton "Copier les refs LDLC" à droite de "Coller des données", copie dans le presse-papiers toutes les refs LDLC de l'opération séparées par une virgule
 
