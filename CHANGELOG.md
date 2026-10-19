@@ -2,6 +2,9 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.11.0
+- Édition d'opération : bouton "Copier les refs LDLC" à droite de "Coller des données", copie dans le presse-papiers toutes les refs LDLC de l'opération séparées par une virgule
+
 ## v1.10.0
 - Colonne "Période" : pour les opérations au statut "Déclaré" (À faire payer), ajout en rouge du nombre de jours écoulés depuis la fin de la promo, ex. "(il y a 4 jours)" ; en gras au-delà de 30 jours
 

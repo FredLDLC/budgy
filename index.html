@@ -864,6 +864,21 @@ function EditionModal({ op, onSave, onClose, currentUser, allUsers=[], fetchRate
   const blank = { id:"", idLdlc:"", idPartner:"", fournisseur:"", marque:"", acheteur:currentUser?.name||"", contact:"", enseignes:[], dateStart:"", dateEnd:"", currency:"EUR", fxRate:1, docLdlc:"", docPartner:"", rapportDate:null, products:[], notes:"" };
   const [form, setForm] = useState(isNew?blank:{ ...blank, ...op, acheteur:op.acheteur||"" });
   const [showPaste, setShowPaste] = useState(false);
+  const [refsCopied, setRefsCopied] = useState(false);
+  const copyLdlcRefs = async () => {
+    const text = form.products.map(p=>(p.refLdlc||"").trim()).filter(Boolean).join(",");
+    if (!text) return;
+    try { await navigator.clipboard.writeText(text); }
+    catch {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch {}
+      document.body.removeChild(ta);
+    }
+    setRefsCopied(true);
+    setTimeout(()=>setRefsCopied(false), 2000);
+  };
   const [alertMsg, setAlertMsg] = useState(null);
   const [dupConfirm, setDupConfirm] = useState(null);
   const [rapportReconfirm, setRapportReconfirm] = useState(false);
@@ -1156,6 +1171,7 @@ function EditionModal({ op, onSave, onClose, currentUser, allUsers=[], fetchRate
             <div style={{ display:"flex", gap:10, marginTop:10 }}>
               <button onClick={addRow} style={{ ...btnG, fontSize:14, padding:"9px 20px" }}>+ Ajouter une ligne</button>
               <button onClick={()=>setShowPaste(true)} style={{ ...btnG, fontSize:14, padding:"9px 20px" }}>📋 Coller des données</button>
+              <button onClick={copyLdlcRefs} style={{ ...btnG, fontSize:14, padding:"9px 20px" }}>{refsCopied?"✓ Refs copiées":"📑 Copier les refs LDLC"}</button>
             </div>
 
             {/* Total dynamique selon statut */}
