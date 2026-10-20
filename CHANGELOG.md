@@ -2,6 +2,9 @@
 
 Suivi de version de l'outil. Pour revenir à une version donnée : `git checkout vX.Y.Z`.
 
+## v1.11.2
+- Édition d'opération, section Enseignes : la case "tout cocher" est renommée "Groupe LDLC" (au lieu de "Tous les statuts")
+
 ## v1.11.1
 - Édition d'opération : boutons renommés "📥 Importer des données" et "✏️ Ajouter une ligne"
 
